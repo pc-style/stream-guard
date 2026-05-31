@@ -30,7 +30,7 @@ final class VisionOCRService: @unchecked Sendable {
             }
             request.recognitionLevel = self.config.recognitionLevel == "accurate" ? .accurate : .fast
             request.recognitionLanguages = ["en-US"]
-            request.usesLanguageCorrection = true
+            request.usesLanguageCorrection = false
             request.minimumTextHeight = self.config.minimumTextHeight
 
             let handler = VNImageRequestHandler(cgImage: image, options: [:])
