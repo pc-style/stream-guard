@@ -110,11 +110,30 @@ enum ImageDownscaler {
         return croppedImages(from: image, pixelBuffer: pixelBuffer, regions: regions, extraScale: max(factor, 1))
     }
 
+    static func adaptiveCroppedImagesForOCR(pixelBuffer: CVPixelBuffer, regions: [TextRegion]) -> [CGImage] {
+        guard let image = imageForOCR(pixelBuffer: pixelBuffer) else { return [] }
+        return croppedImages(from: image, pixelBuffer: pixelBuffer, regions: regions) { crop in
+            let longEdge = max(crop.width, crop.height)
+            let shortEdge = min(crop.width, crop.height)
+            guard longEdge >= 900, shortEdge >= 220 else { return 1 }
+            return 2
+        }
+    }
+
     private static func croppedImages(
         from image: CGImage,
         pixelBuffer: CVPixelBuffer,
         regions: [TextRegion],
         extraScale: CGFloat
+    ) -> [CGImage] {
+        croppedImages(from: image, pixelBuffer: pixelBuffer, regions: regions) { _ in extraScale }
+    }
+
+    private static func croppedImages(
+        from image: CGImage,
+        pixelBuffer: CVPixelBuffer,
+        regions: [TextRegion],
+        scaleForCrop: (CGImage) -> CGFloat
     ) -> [CGImage] {
         guard !regions.isEmpty else { return [] }
         let sourceWidth = CGFloat(CVPixelBufferGetWidth(pixelBuffer))
@@ -140,8 +159,9 @@ enum ImageDownscaler {
             let rectKey = "\(Int(integralRect.minX)):\(Int(integralRect.minY)):\(Int(integralRect.width)):\(Int(integralRect.height))"
             guard seenRects.insert(rectKey).inserted else { continue }
             guard let crop = image.cropping(to: integralRect) else { continue }
-            if extraScale > 1,
-               let downscaled = downscale(image: crop, factor: extraScale) {
+            let scale = max(scaleForCrop(crop), 1)
+            if scale > 1,
+               let downscaled = downscale(image: crop, factor: scale) {
                 cropped.append(downscaled)
             } else {
                 cropped.append(crop)
