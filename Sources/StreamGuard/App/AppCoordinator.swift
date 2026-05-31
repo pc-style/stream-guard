@@ -247,6 +247,7 @@ final class AppCoordinator: NSObject, ScreenCaptureDelegate {
 
     private func runWatchdogTickIfNeeded() async {
         guard isMonitoring else { return }
+        drainThrottledPendingIfReady()
         let now = CFAbsoluteTimeGetCurrent()
         guard shouldRunWatchdogSnapshot(now: now) else { return }
 
@@ -383,6 +384,14 @@ final class AppCoordinator: NSObject, ScreenCaptureDelegate {
                 self.drainPendingFrameIfAny()
             }
         }
+    }
+
+    /// Drains a frame queued only because `canAcceptNewPipelineWork` was false (OCR interval).
+    private func drainThrottledPendingIfReady() {
+        guard pendingPixelBuffer != nil, pendingFrameSource != nil else { return }
+        guard !pipelineInFlight else { return }
+        guard canAcceptNewPipelineWork(now: CFAbsoluteTimeGetCurrent()) else { return }
+        drainPendingFrameIfAny()
     }
 
     private func drainPendingFrameIfAny() {
