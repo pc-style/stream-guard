@@ -240,13 +240,14 @@ def collect_samples(duration_s: float) -> list[dict[str, Any]]:
     return samples
 
 
-def wait_until_clear(timeout_s: float = TIMEOUT_SECONDS) -> None:
+def wait_until_clear(timeout_s: float = TIMEOUT_SECONDS) -> bool:
     deadline = time.time() + timeout_s
     while time.time() < deadline:
         status = fetch_status()
         if status and status.get("state") == "clear" and status.get("overlayVisible") is False:
-            return
+            return True
         time.sleep(POLL_SECONDS)
+    return False
 
 
 def benchmark_fixture(mode: str, fixture: Path, browser: Browser, log_file: Path) -> BenchResult:
@@ -255,7 +256,8 @@ def benchmark_fixture(mode: str, fixture: Path, browser: Browser, log_file: Path
 
     browser.goto(CLEAR_PAGE)
     time.sleep(SETTLE_SECONDS)
-    wait_until_clear()
+    if not wait_until_clear():
+        raise RuntimeError(f"{fixture.name}: timed out waiting for clear state before benchmark sample")
 
     before = fetch_status() or {}
     before_ocr_frames = int(before.get("ocrFrames") or 0)

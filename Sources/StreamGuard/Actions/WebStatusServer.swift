@@ -70,6 +70,8 @@ final class WebStatusServer: @unchecked Sendable {
             let path = Self.path(from: request)
             if request.contains("Upgrade: websocket") {
                 self.handleWebSocketUpgrade(connection: connection, request: request)
+            } else if path.hasPrefix("/control/") && !Self.isLoopback(connection: connection) {
+                self.sendForbidden(on: connection)
             } else if path == "/control/start" {
                 self.controlHandler?("start")
                 self.sendJSON(on: connection, body: "{\"ok\":true,\"action\":\"start\"}")
@@ -105,6 +107,20 @@ final class WebStatusServer: @unchecked Sendable {
         return String(parts[1].split(separator: "?", maxSplits: 1).first ?? "/")
     }
 
+    private static func isLoopback(connection: NWConnection) -> Bool {
+        guard case .hostPort(let host, _) = connection.endpoint else { return false }
+        switch host {
+        case .ipv4(let address):
+            return address.debugDescription.hasPrefix("127.")
+        case .ipv6(let address):
+            return address.debugDescription == "::1"
+        case .name(let name, _):
+            return name == "localhost"
+        @unknown default:
+            return false
+        }
+    }
+
     private func sendStatus(on connection: NWConnection) {
         let payload = statusProvider()
         let encoder = JSONEncoder()
@@ -125,6 +141,15 @@ final class WebStatusServer: @unchecked Sendable {
             statusLine: "HTTP/1.1 200 OK",
             contentType: "application/json",
             body: body
+        )
+    }
+
+    private func sendForbidden(on connection: NWConnection) {
+        sendRawResponse(
+            on: connection,
+            statusLine: "HTTP/1.1 403 Forbidden",
+            contentType: "application/json",
+            body: "{\"ok\":false,\"error\":\"control endpoints require a loopback client\"}"
         )
     }
 
