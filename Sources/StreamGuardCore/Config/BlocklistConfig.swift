@@ -71,13 +71,27 @@ public struct OBSConfig: Codable, Sendable, Equatable {
     public var enabled: Bool
     public var host: String
     public var port: Int
+    public var controlMode: String
     public var blackoutScene: String
+    public var protectedScene: String
+    public var blackoutSource: String
 
-    public init(enabled: Bool = false, host: String = "127.0.0.1", port: Int = 4455, blackoutScene: String = "BLACKOUT") {
+    public init(
+        enabled: Bool = false,
+        host: String = "127.0.0.1",
+        port: Int = 4455,
+        controlMode: String = "scene",
+        blackoutScene: String = "BLACKOUT",
+        protectedScene: String = "STREAM_GUARD_PROTECTED",
+        blackoutSource: String = "STREAM_GUARD_BLACKOUT"
+    ) {
         self.enabled = enabled
         self.host = host
         self.port = port
+        self.controlMode = controlMode
         self.blackoutScene = blackoutScene
+        self.protectedScene = protectedScene
+        self.blackoutSource = blackoutSource
     }
 }
 

@@ -23,7 +23,8 @@ if TYPE_CHECKING:
 
 ROOT = Path(__file__).resolve().parent.parent
 STATUS_URL = os.environ.get("STREAM_GUARD_STATUS_URL", "http://127.0.0.1:8765/status")
-CONTROL_START_URL = STATUS_URL.replace("/status", "/control/start")
+CONTROL_BASE_URL = STATUS_URL.replace("/status", "/control")
+CONTROL_START_URL = f"{CONTROL_BASE_URL}/start"
 FIXTURE_DIR = ROOT / "test-fixtures"
 CLEAR_PAGE = FIXTURE_DIR / "safe-control.html"
 FIXTURE_PAGES = [
@@ -31,6 +32,30 @@ FIXTURE_PAGES = [
     "card-fixture.html",
     "split-frame.html",
 ]
+# Pipeline modes exercised via POST /control/mode/* (same routes as the status page).
+PIPELINE_MODES = [
+    mode.strip()
+    for mode in os.environ.get("STREAM_GUARD_E2E_MODES", "yodo-ocr,roi,full").split(",")
+    if mode.strip()
+]
+MODE_ROUTES = {
+    "full": "full",
+    "roi": "roi",
+    "yodo": "yodo",
+    "yodo-ocr": "yodo-ocr",
+}
+MODE_PIPELINE_NAMES = {
+    "full": "fullFrame",
+    "roi": "roiCascade",
+    "yodo": "yodoMask",
+    "yodo-ocr": "yodoOCR",
+}
+# Any of these substrings in lastMatch is acceptable for the fixture.
+EXPECTED_MATCH_SUBSTRINGS: dict[str, list[str]] = {
+    "fake-terminal.html": ["(555) 123-4567", "5551234567"],
+    "card-fixture.html": ["555.987.6543", "5559876543"],
+    "split-frame.html": ["555 123-4567", "5551234567", "555123-4567"],
+}
 TIMEOUT_S = float(os.environ.get("STREAM_GUARD_TEST_TIMEOUT", "20"))
 POLL_S = float(os.environ.get("STREAM_GUARD_TEST_POLL", "0.05"))
 SETTLE_S = float(os.environ.get("STREAM_GUARD_SETTLE", "2.0"))
@@ -49,12 +74,14 @@ BUILD_FLAGS = [
 
 @dataclass
 class FixtureResult:
+    mode: str
     name: str
     arm_ms: float | None
     clear_ms: float | None
     last_match: str | None
     arm_ok: bool
     clear_ok: bool
+    match_ok: bool
     note: str = ""
 
 
@@ -63,6 +90,13 @@ def log(msg: str, log_file: Path) -> None:
     print(line, flush=True)
     with log_file.open("a", encoding="utf-8") as f:
         f.write(line + "\n")
+
+
+def post_control(path: str) -> None:
+    urllib.request.urlopen(
+        urllib.request.Request(f"{CONTROL_BASE_URL}/{path}", method="POST"),
+        timeout=2,
+    ).read()
 
 
 def fetch_status() -> dict | None:
@@ -207,10 +241,12 @@ def wait_until(predicate, timeout_s: float, log_file: Path, label: str) -> tuple
                 f" snap={last.get('lastSnapshotDurationMS')}"
                 f" prep={last.get('lastPreprocessDurationMS')}"
             )
+        pipeline = last.get("pipelineMode")
+        pipeline_bit = f" pipeline={pipeline}" if pipeline else ""
         line = (
             f"  poll {label}: state={last.get('state')} "
             f"overlay={last.get('overlayVisible')} "
-            f"match={last.get('lastMatch') or '—'}{timing}"
+            f"match={last.get('lastMatch') or '—'}{pipeline_bit}{timing}"
         )
         if line != last_line:
             log(line, log_file)
@@ -229,15 +265,74 @@ def is_armed(status: dict) -> bool:
     return status.get("state") == "armed" and status.get("overlayVisible") is True
 
 
-def run_fixture(name: str, path: Path, browser: PlaywrightSession, log_file: Path) -> FixtureResult:
-    log(f"--- fixture: {name} ---", log_file)
+def match_is_expected(fixture_name: str, last_match: str | None) -> bool:
+    if not last_match:
+        return False
+    expected = EXPECTED_MATCH_SUBSTRINGS.get(fixture_name)
+    if not expected:
+        return True
+    return any(fragment in last_match for fragment in expected)
+
+
+def set_pipeline_mode(mode: str, log_file: Path) -> bool:
+    route = MODE_ROUTES.get(mode)
+    if route is None:
+        log(f"FAIL: unknown pipeline mode {mode!r}", log_file)
+        return False
+    log(f"POST /control/mode/{route} ({MODE_PIPELINE_NAMES.get(mode, mode)})", log_file)
+    try:
+        post_control(f"mode/{route}")
+    except urllib.error.URLError as error:
+        log(f"FAIL: mode switch: {error}", log_file)
+        return False
+    time.sleep(0.25)
+    status = fetch_status()
+    expected = MODE_PIPELINE_NAMES.get(mode)
+    if status and expected and status.get("pipelineMode") != expected:
+        log(
+            f"WARN: pipelineMode is {status.get('pipelineMode')!r}, expected {expected!r}",
+            log_file,
+        )
+    return True
+
+
+def prepare_mode(mode: str, browser: PlaywrightSession, log_file: Path) -> bool:
+    if not set_pipeline_mode(mode, log_file):
+        return False
+    browser.goto(CLEAR_PAGE)
+    time.sleep(SETTLE_S)
+    ok, _ = wait_until(is_clear, TIMEOUT_S, log_file, f"{mode}-baseline-clear")
+    if not ok:
+        log(f"FAIL: could not reach clear before {mode} fixtures", log_file)
+    return ok
+
+
+def run_fixture(
+    mode: str,
+    name: str,
+    path: Path,
+    browser: PlaywrightSession,
+    log_file: Path,
+) -> FixtureResult:
+    label = f"{mode}/{name}"
+    log(f"--- {label} ---", log_file)
 
     log("navigate: clear page (baseline)", log_file)
     browser.goto(CLEAR_PAGE)
     time.sleep(SETTLE_S)
     ok, _ = wait_until(is_clear, TIMEOUT_S, log_file, "baseline-clear")
     if not ok:
-        return FixtureResult(name, None, None, None, False, False, "never reached clear before test")
+        return FixtureResult(
+            mode,
+            name,
+            None,
+            None,
+            None,
+            False,
+            False,
+            False,
+            "never reached clear before test",
+        )
 
     log(f"navigate: sensitive page {path.name}", log_file)
     t_open = now_ms()
@@ -258,6 +353,10 @@ def run_fixture(name: str, path: Path, browser: PlaywrightSession, log_file: Pat
     else:
         log(f"FAIL: did not arm within {TIMEOUT_S}s", log_file)
 
+    match_ok = armed_ok and match_is_expected(name, last_match)
+    if armed_ok and not match_ok:
+        log(f"FAIL: unexpected match {last_match!r} for {name}", log_file)
+
     log("navigate: clear page (recovery)", log_file)
     t_clear_open = now_ms()
     browser.goto(CLEAR_PAGE)
@@ -269,7 +368,16 @@ def run_fixture(name: str, path: Path, browser: PlaywrightSession, log_file: Pat
     else:
         log(f"FAIL: did not clear within {TIMEOUT_S}s", log_file)
 
-    return FixtureResult(name, arm_ms, clear_ms, last_match, armed_ok, clear_ok)
+    return FixtureResult(
+        mode,
+        name,
+        arm_ms,
+        clear_ms,
+        last_match,
+        armed_ok,
+        clear_ok,
+        match_ok,
+    )
 
 
 def main() -> int:
@@ -279,6 +387,7 @@ def main() -> int:
 
     log("Stream Guard E2E live latency test (Playwright)", log_file)
     log(f"log file: {log_file}", log_file)
+    log(f"pipeline modes: {', '.join(PIPELINE_MODES)}", log_file)
 
     ensure_playwright(log_file)
 
@@ -299,13 +408,31 @@ def main() -> int:
 
         results: list[FixtureResult] = []
         with PlaywrightSession(log_file) as browser:
-            for page_name in FIXTURE_PAGES:
-                path = FIXTURE_DIR / page_name
-                if not path.exists():
-                    log(f"skip missing fixture: {page_name}", log_file)
+            for mode in PIPELINE_MODES:
+                log(f"=== pipeline mode: {mode} ===", log_file)
+                if not prepare_mode(mode, browser, log_file):
+                    for page_name in FIXTURE_PAGES:
+                        results.append(
+                            FixtureResult(
+                                mode,
+                                page_name,
+                                None,
+                                None,
+                                None,
+                                False,
+                                False,
+                                False,
+                                "mode prep failed",
+                            )
+                        )
                     continue
-                results.append(run_fixture(page_name, path, browser, log_file))
-                time.sleep(0.5)
+                for page_name in FIXTURE_PAGES:
+                    path = FIXTURE_DIR / page_name
+                    if not path.exists():
+                        log(f"skip missing fixture: {page_name}", log_file)
+                        continue
+                    results.append(run_fixture(mode, page_name, path, browser, log_file))
+                    time.sleep(0.5)
 
         log("", log_file)
         log("=== SUMMARY ===", log_file)
@@ -313,13 +440,16 @@ def main() -> int:
         for r in results:
             arm = f"{r.arm_ms:.1f} ms" if r.arm_ms is not None else "FAIL"
             clear = f"{r.clear_ms:.1f} ms" if r.clear_ms is not None else "FAIL"
-            status = "PASS" if r.arm_ok and r.clear_ok else "FAIL"
+            status = "PASS" if r.arm_ok and r.clear_ok and r.match_ok else "FAIL"
             if status == "FAIL":
                 failures += 1
+            row = f"{r.mode}/{r.name}"
             log(
-                f"{status}  {r.name:24}  arm={arm:>10}  clear={clear:>10}  match={r.last_match or '—'}",
+                f"{status}  {row:32}  arm={arm:>10}  clear={clear:>10}  match={r.last_match or '—'}",
                 log_file,
             )
+            if r.note:
+                log(f"       note: {r.note}", log_file)
 
         if failures:
             log(f"{failures} fixture(s) failed", log_file)

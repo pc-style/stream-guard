@@ -15,6 +15,9 @@ final class AppCoordinator: NSObject, ScreenCaptureDelegate {
 
     /// When no SCStream frame arrives within this interval, pull a watchdog snapshot.
     private static let streamWatchdogStaleInterval: CFAbsoluteTime = 0.5
+    /// While clear with text-like regions, allow faster OCR retries than config.ocr.fps.
+    private static let ocrBurstFPS: Double = 25
+    private static let ocrBurstDuration: CFAbsoluteTime = 0.5
 
     private let captureManager = ScreenCaptureManager()
     private let overlay = BlackoutOverlay()
@@ -34,6 +37,9 @@ final class AppCoordinator: NSObject, ScreenCaptureDelegate {
     private var pendingFrameSource: FrameSource?
     private var pendingFrameReceivedAt: Date?
     private var lastOCRTime: CFAbsoluteTime = 0
+    private var ocrBurstDeadline: CFAbsoluteTime = 0
+    private var ocrSequentialCropAppend = false
+    private var ocrDetectionAppliedInPass = false
     private var lastStreamFrameTime: CFAbsoluteTime = 0
     private var previousFingerprint: [UInt8]?
     private var lastOCRHadNoMatch = true
@@ -145,7 +151,7 @@ final class AppCoordinator: NSObject, ScreenCaptureDelegate {
             mergedText: lastMergedText,
             lastOCRLatencyMS: lastOCRLatencyMS,
             lastOCRAt: lastOCRAt,
-            overlayVisible: overlay.visible,
+            overlayVisible: overlay.visible && detectionEngine.stateMachine.state != .clear,
             lastSnapshotDurationMS: lastSnapshotDurationMS,
             lastPreprocessDurationMS: lastPreprocessDurationMS,
             lastFrameReceivedAt: lastFrameReceivedAt,
@@ -241,6 +247,9 @@ final class AppCoordinator: NSObject, ScreenCaptureDelegate {
         detectionEngine.stateMachine.reset()
         previousFingerprint = nil
         lastOCRTime = 0
+        ocrBurstDeadline = 0
+        ocrSequentialCropAppend = false
+        ocrDetectionAppliedInPass = false
         lastStreamFrameTime = 0
         pipelineInFlight = false
         snapshotInFlight = false
@@ -356,8 +365,28 @@ final class AppCoordinator: NSObject, ScreenCaptureDelegate {
 
     private func canAcceptNewPipelineWork(now: CFAbsoluteTime) -> Bool {
         guard !pipelineInFlight else { return false }
-        let minOCRInterval = 1.0 / max(config.ocr.fps, 1.0)
-        return (now - lastOCRTime) >= minOCRInterval
+        return (now - lastOCRTime) >= effectiveMinOCRInterval(now: now)
+    }
+
+    private func effectiveMinOCRInterval(now: CFAbsoluteTime) -> CFAbsoluteTime {
+        if detectionEngine.stateMachine.state == .clear,
+           now < ocrBurstDeadline {
+            return 1.0 / Self.ocrBurstFPS
+        }
+        return 1.0 / max(config.ocr.fps, 1.0)
+    }
+
+    private func refreshOCRBurstIfNeeded(analysis: TextRegionAnalysis) {
+        guard detectionEngine.stateMachine.state == .clear else { return }
+        let hasTextRegions = !analysis.roiRegions.isEmpty || !analysis.yodoMaskRegions.isEmpty
+        guard hasTextRegions else { return }
+        let now = CFAbsoluteTimeGetCurrent()
+        ocrBurstDeadline = max(ocrBurstDeadline, now + Self.ocrBurstDuration)
+    }
+
+    private func endOCRBurstIfMatched() {
+        guard detectionEngine.stateMachine.state != .clear else { return }
+        ocrBurstDeadline = 0
     }
 
     // MARK: - ScreenCaptureDelegate
@@ -468,7 +497,10 @@ final class AppCoordinator: NSObject, ScreenCaptureDelegate {
     private func startROICascade(pixelBuffer: CVPixelBuffer, preprocessStarted: CFAbsoluteTime) {
         let analysis = TextRegionDetector.analyze(pixelBuffer: pixelBuffer)
         recordRegionAnalysis(analysis)
-        let images = ImageDownscaler.croppedImagesForOCR(pixelBuffer: pixelBuffer, regions: analysis.roiRegions)
+        let images = ImageDownscaler.adaptiveCroppedImagesForOCR(
+            pixelBuffer: pixelBuffer,
+            regions: analysis.roiRegions
+        )
         lastROIImageCount = images.count
         lastROISkippedOCR = images.isEmpty
 
@@ -507,10 +539,9 @@ final class AppCoordinator: NSObject, ScreenCaptureDelegate {
     private func startYODOOCR(pixelBuffer: CVPixelBuffer, preprocessStarted: CFAbsoluteTime) {
         let analysis = TextRegionDetector.analyze(pixelBuffer: pixelBuffer)
         recordRegionAnalysis(analysis)
-        let images = ImageDownscaler.downscaledCroppedImagesForOCR(
+        let images = ImageDownscaler.adaptiveCroppedImagesForOCR(
             pixelBuffer: pixelBuffer,
-            regions: analysis.yodoMaskRegions,
-            factor: 2
+            regions: analysis.yodoMaskRegions
         )
         lastROIImageCount = images.count
         lastROISkippedOCR = images.isEmpty
@@ -532,49 +563,114 @@ final class AppCoordinator: NSObject, ScreenCaptureDelegate {
 
     private func startOCR(images: [CGImage]) {
         pipelineInFlight = true
+        ocrSequentialCropAppend = false
+        ocrDetectionAppliedInPass = false
         let now = CFAbsoluteTimeGetCurrent()
         lastOCRTime = now
         lastOCRStartedAt = Date()
         let ocrStartedAt = CFAbsoluteTimeGetCurrent()
 
+        if images.count > 1 {
+            ocrService.recognizeSequential(images: images, shouldStop: { [weak self] cropStrings in
+                guard let self else { return false }
+                return self.processCropFastPath(cropStrings)
+            }, completion: { [weak self] result in
+                Task { @MainActor in
+                    self?.completeOCRPass(result: result, startedAt: ocrStartedAt)
+                }
+            })
+            return
+        }
+
         ocrService.recognize(images: images) { [weak self] result in
             Task { @MainActor in
-                guard let self else { return }
-                self.pipelineInFlight = false
-                let ocrDoneAt = Date()
-                self.lastOCRLatencyMS = (CFAbsoluteTimeGetCurrent() - ocrStartedAt) * 1000
-                self.lastOCRAt = ocrDoneAt
-                self.lastOCRDoneAt = ocrDoneAt
-                if let preprocessDoneAt = self.lastPreprocessDoneAt {
-                    self.lastPreprocessToOCRDoneMS = ocrDoneAt.timeIntervalSince(preprocessDoneAt) * 1000
-                }
-                switch result {
-                case .success(let strings):
-                    self.ocrFrameCount += 1
-                    self.finishRecognizedStrings(strings)
-                case .failure(let error):
-                    self.lastOCRText = "OCR error: \(error.localizedDescription)"
-                    self.lastOCRHadNoMatch = false
-                    self.notify("OCR error: \(error.localizedDescription)")
-                }
-                self.drainPendingFrameIfAny()
+                self?.completeOCRPass(result: result, startedAt: ocrStartedAt)
             }
         }
     }
 
-    private func finishRecognizedStrings(_ strings: [String]) {
-        lastOCRText = strings.joined(separator: " | ")
-        for string in strings {
+    private func completeOCRPass(result: Result<[String], Error>, startedAt: CFAbsoluteTime) {
+        pipelineInFlight = false
+        let ocrDoneAt = Date()
+        lastOCRLatencyMS = (CFAbsoluteTimeGetCurrent() - startedAt) * 1000
+        lastOCRAt = ocrDoneAt
+        lastOCRDoneAt = ocrDoneAt
+        if let preprocessDoneAt = lastPreprocessDoneAt {
+            lastPreprocessToOCRDoneMS = ocrDoneAt.timeIntervalSince(preprocessDoneAt) * 1000
+        }
+        switch result {
+        case .success(let strings):
+            ocrFrameCount += 1
+            finishRecognizedStrings(strings)
+        case .failure(let error):
+            lastOCRText = "OCR error: \(error.localizedDescription)"
+            lastOCRHadNoMatch = false
+            notify("OCR error: \(error.localizedDescription)")
+        }
+        ocrSequentialCropAppend = false
+        ocrDetectionAppliedInPass = false
+        drainPendingFrameIfAny()
+    }
+
+    /// Appends crop OCR, checks compact variants + merge buffer; arms without waiting for other crops.
+    @discardableResult
+    private func processCropFastPath(_ cropStrings: [String]) -> Bool {
+        guard !cropStrings.isEmpty else { return false }
+        for string in cropStrings {
             textBuffer.append(string)
         }
+        ocrSequentialCropAppend = true
+        lastOCRText = cropStrings.joined(separator: " | ")
         let merged = textBuffer.mergedText()
-        let compactMerged = textBuffer.compactMergedText()
         lastMergedText = merged
-        let analysisText = compactMerged.isEmpty ? merged : "\(merged)\n\(compactMerged)"
+        let analysisText = analysisTextForDetection(merged: merged, latestCropStrings: cropStrings)
+        guard detectionEngine.wouldTrigger(text: analysisText) else { return false }
+        applyDetectionResult(analysisText: analysisText)
+        return detectionEngine.stateMachine.state != .clear
+    }
+
+    private func finishRecognizedStrings(_ strings: [String]) {
+        if !ocrSequentialCropAppend {
+            for string in strings {
+                textBuffer.append(string)
+            }
+        }
+        lastOCRText = strings.joined(separator: " | ")
+        let merged = textBuffer.mergedText()
+        lastMergedText = merged
+        guard !ocrDetectionAppliedInPass else { return }
+        applyDetectionResult(analysisText: analysisTextForDetection(merged: merged))
+    }
+
+    private func analysisTextForDetection(merged: String, latestCropStrings: [String] = []) -> String {
+        var parts: [String] = []
+        if !merged.isEmpty {
+            parts.append(merged)
+        }
+        let compactMerged = textBuffer.compactMergedText()
+        if !compactMerged.isEmpty, compactMerged != merged {
+            parts.append(compactMerged)
+        }
+        if !latestCropStrings.isEmpty {
+            let cropJoined = latestCropStrings.joined(separator: " ")
+            let cropCompact = TextNormalizer.compact(cropJoined)
+            if !cropJoined.isEmpty {
+                parts.append(cropJoined)
+            }
+            if !cropCompact.isEmpty, cropCompact != cropJoined {
+                parts.append(cropCompact)
+            }
+        }
+        return parts.joined(separator: "\n")
+    }
+
+    private func applyDetectionResult(analysisText: String) {
         let transition = detectionEngine.analyze(text: analysisText)
+        ocrDetectionAppliedInPass = true
         lastOCRHadNoMatch = detectionEngine.stateMachine.state == .clear
         if let transition {
             handleTransition(transition)
+            endOCRBurstIfMatched()
         }
     }
 
@@ -583,6 +679,7 @@ final class AppCoordinator: NSObject, ScreenCaptureDelegate {
         lastTextRegionCoverage = analysis.roiCoverage
         lastYODORegionCount = analysis.yodoMaskRegions.count
         lastYODOMaskCoverage = analysis.yodoMaskCoverage
+        refreshOCRBurstIfNeeded(analysis: analysis)
     }
 
     private func resetRegionMetricsForFullFrame() {
