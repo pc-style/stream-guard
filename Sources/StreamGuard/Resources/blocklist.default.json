@@ -20,6 +20,10 @@
     "recognitionLevel": "fast",
     "minimumTextHeight": 0.01
   },
+  "pipeline": {
+    "mode": "fullFrame",
+    "yodoShowsMasks": true
+  },
   "obs": {
     "enabled": false,
     "host": "127.0.0.1",

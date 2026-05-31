@@ -3,78 +3,124 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Stream Guard Status</title>
+  <title>Stream Guard Lab</title>
   <style>
     :root {
       color-scheme: dark;
       --bg: #0b0f14;
-      --panel: #141b24;
-      --text: #e8eef7;
-      --muted: #8b9bb4;
-      --clear: #3dd68c;
-      --suspect: #f5a524;
-      --armed: #ff5d5d;
+      --panel: #141922;
+      --line: #283241;
+      --text: #edf2f8;
+      --muted: #91a0b5;
+      --clear: #31d080;
+      --suspect: #f1a12b;
+      --armed: #ff6060;
+      --accent: #71b7ff;
     }
     * { box-sizing: border-box; }
     body {
       margin: 0;
       min-height: 100vh;
       font-family: "SF Pro Text", -apple-system, BlinkMacSystemFont, sans-serif;
-      background: radial-gradient(circle at top, #1a2433, var(--bg));
+      background: #0b0f14;
       color: var(--text);
+      padding: 24px;
+    }
+    main {
+      width: min(1120px, 100%);
+      margin: 0 auto;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: end;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+    h1 { margin: 0; font-size: 1.35rem; }
+    .subtitle { color: var(--muted); margin: 6px 0 0; }
+    nav { display: flex; flex-wrap: wrap; gap: 8px; }
+    a, button {
+      color: var(--text);
+      background: #111821;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 8px 11px;
+      text-decoration: none;
+      font: inherit;
+      cursor: pointer;
+    }
+    a.active, button.active {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: rgba(113, 183, 255, 0.12);
+    }
+    .layout {
       display: grid;
-      place-items: center;
-      padding: 2rem;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 14px;
     }
-    .card {
-      width: min(860px, 100%);
+    .panel {
       background: var(--panel);
-      border: 1px solid #243041;
-      border-radius: 16px;
-      padding: 1.5rem;
-      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
     }
-    h1 { margin: 0 0 0.25rem; font-size: 1.5rem; }
-    .subtitle { color: var(--muted); margin-bottom: 1.5rem; }
     .badge {
       display: inline-flex;
       align-items: center;
-      gap: 0.5rem;
-      padding: 0.5rem 0.85rem;
-      border-radius: 999px;
-      font-weight: 600;
+      gap: 8px;
+      padding: 7px 10px;
+      border-radius: 8px;
+      font-weight: 700;
       text-transform: uppercase;
-      letter-spacing: 0.06em;
-      font-size: 0.75rem;
+      letter-spacing: 0.04em;
+      font-size: 0.78rem;
     }
-    .dot { width: 0.65rem; height: 0.65rem; border-radius: 50%; background: currentColor; }
-    .state-clear { color: var(--clear); background: rgba(61, 214, 140, 0.12); }
-    .state-suspect { color: var(--suspect); background: rgba(245, 165, 36, 0.12); }
-    .state-armed { color: var(--armed); background: rgba(255, 93, 93, 0.12); }
-    .grid { display: grid; gap: 0.75rem; margin-top: 1.25rem; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+    .state-clear { color: var(--clear); background: rgba(49, 208, 128, 0.12); }
+    .state-suspect { color: var(--suspect); background: rgba(241, 161, 43, 0.12); }
+    .state-armed { color: var(--armed); background: rgba(255, 96, 96, 0.12); }
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 14px;
+    }
+    .metric {
+      border-top: 1px solid var(--line);
+      padding-top: 10px;
+      min-width: 0;
+    }
+    .label {
+      color: var(--muted);
+      font-size: 0.78rem;
+      line-height: 1.25;
+    }
+    .value {
+      margin-top: 4px;
+      font-size: 1.05rem;
+      font-weight: 650;
+      overflow-wrap: anywhere;
+    }
+    .rows { margin-top: 12px; }
     .row {
       display: flex;
       justify-content: space-between;
-      gap: 1rem;
-      padding: 0.75rem 0;
-      border-top: 1px solid #243041;
+      gap: 16px;
+      padding: 9px 0;
+      border-top: 1px solid var(--line);
     }
-    .label { color: var(--muted); }
-    .events {
-      margin-top: 1.25rem;
-      max-height: 220px;
-      overflow: auto;
-      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-      font-size: 0.82rem;
-      background: #0f141c;
-      border-radius: 10px;
-      padding: 0.75rem;
+    .row span:last-child { text-align: right; overflow-wrap: anywhere; }
+    .mode-copy {
+      line-height: 1.5;
+      color: #cbd6e5;
+      margin: 10px 0 0;
     }
-    .event { padding: 0.25rem 0; color: #c5d2e5; }
-    details.debug {
-      margin-top: 1rem;
-      border-top: 1px solid #243041;
-      padding-top: 1rem;
+    details {
+      margin-top: 14px;
+      border-top: 1px solid var(--line);
+      padding-top: 12px;
     }
     summary {
       cursor: pointer;
@@ -84,89 +130,202 @@
     pre {
       white-space: pre-wrap;
       word-break: break-word;
-      margin: 0.5rem 0 0;
-      padding: 0.75rem;
+      margin: 8px 0 0;
+      padding: 10px;
       background: #080c12;
-      border: 1px solid #243041;
-      border-radius: 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
       color: #d7e2f2;
       max-height: 180px;
       overflow: auto;
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
       font-size: 0.82rem;
     }
+    .events {
+      margin-top: 12px;
+      max-height: 220px;
+      overflow: auto;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.82rem;
+      background: #0f141c;
+      border-radius: 8px;
+      padding: 10px;
+    }
+    .event { padding: 3px 0; color: #c5d2e5; }
+    @media (max-width: 860px) {
+      body { padding: 14px; }
+      header, .layout { display: block; }
+      nav { margin-top: 14px; }
+      .layout > * + * { margin-top: 14px; }
+      .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
   </style>
 </head>
 <body>
-  <main class="card">
-    <h1>Stream Guard</h1>
-    <p class="subtitle">Local monitoring status</p>
-    <div id="badge" class="badge state-clear"><span class="dot"></span><span id="state">clear</span></div>
-    <div class="grid">
-      <div class="row"><span class="label">Last match</span><span id="lastMatch">—</span></div>
-      <div class="row"><span class="label">Updated</span><span id="timestamp">—</span></div>
-      <div class="row"><span class="label">Monitoring</span><span id="monitoring">—</span></div>
-      <div class="row"><span class="label">OCR frames</span><span id="ocrFrames">0</span></div>
-      <div class="row"><span class="label">Last OCR</span><span id="lastOCRAt">—</span></div>
-      <div class="row"><span class="label">OCR latency</span><span id="ocrLatency">—</span></div>
-      <div class="row"><span class="label">Snapshot</span><span id="snapshotLatency">—</span></div>
-      <div class="row"><span class="label">Preprocess</span><span id="preprocessLatency">—</span></div>
-      <div class="row"><span class="label">Last frame</span><span id="lastFrameAt">—</span></div>
-      <div class="row"><span class="label">Connection</span><span id="connection">connecting…</span></div>
-    </div>
-    <details class="debug">
-      <summary>Show OCR debug text (hide this while testing the screen)</summary>
-      <div class="label" style="margin-top: 0.75rem;">Last OCR text</div>
-      <pre id="lastOCRText">—</pre>
-      <div class="label" style="margin-top: 0.75rem;">Merged detection buffer</div>
-      <pre id="mergedText">—</pre>
-    </details>
-    <div id="events" class="events"></div>
+  <main>
+    <header>
+      <div>
+        <h1>Stream Guard Lab</h1>
+        <p class="subtitle">Compare full-frame OCR, ROI Cascade, and YODO mask behavior.</p>
+      </div>
+    </header>
+
+    <section class="layout">
+      <div class="panel">
+        <div id="badge" class="badge state-clear"><span class="dot"></span><span id="state">clear</span></div>
+        <div class="metrics">
+          <div class="metric"><div class="label">Pipeline</div><div class="value" id="pipelineMode">fullFrame</div></div>
+          <div class="metric"><div class="label">OCR latency</div><div class="value" id="ocrLatency">-</div></div>
+          <div class="metric"><div class="label">Preprocess</div><div class="value" id="preprocessLatency">-</div></div>
+          <div class="metric"><div class="label">OCR frames</div><div class="value" id="ocrFrames">0</div></div>
+          <div class="metric"><div class="label">ROI crops</div><div class="value" id="roiImages">0</div></div>
+          <div class="metric"><div class="label">Text coverage</div><div class="value" id="textCoverage">0%</div></div>
+        </div>
+        <div class="rows">
+          <div class="row"><span class="label">Monitoring</span><span id="monitoring">-</span></div>
+          <div class="row"><span class="label">Last match</span><span id="lastMatch">-</span></div>
+          <div class="row"><span class="label">Updated</span><span id="timestamp">-</span></div>
+          <div class="row"><span class="label">Last OCR</span><span id="lastOCRAt">-</span></div>
+          <div class="row"><span class="label">Snapshot</span><span id="snapshotLatency">-</span></div>
+          <div class="row"><span class="label">Last frame</span><span id="lastFrameAt">-</span></div>
+          <div class="row"><span class="label">Pipeline start</span><span id="pipelineStartedAt">-</span></div>
+          <div class="row"><span class="label">Preprocess done</span><span id="preprocessDoneAt">-</span></div>
+          <div class="row"><span class="label">OCR start / done</span><span id="ocrWindow">-</span></div>
+          <div class="row"><span class="label">State transition</span><span id="stateTransitionAt">-</span></div>
+          <div class="row"><span class="label">Connection</span><span id="connection">connecting...</span></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2 id="modeTitle" style="margin:0;font-size:1rem;">Overview</h2>
+        <p class="mode-copy" id="modeCopy"></p>
+        <div class="rows">
+          <div class="row"><span class="label">Text regions</span><span id="textRegions">0</span></div>
+          <div class="row"><span class="label">ROI skipped OCR</span><span id="roiSkipped">no</span></div>
+          <div class="row"><span class="label">YODO masks</span><span id="yodoRegions">0</span></div>
+          <div class="row"><span class="label">YODO coverage</span><span id="yodoCoverage">0%</span></div>
+          <div class="row"><span class="label">Frame -> pipeline</span><span id="frameToPipeline">-</span></div>
+          <div class="row"><span class="label">Pipeline -> preprocess</span><span id="pipelineToPreprocess">-</span></div>
+          <div class="row"><span class="label">Preprocess -> OCR done</span><span id="preprocessToOCRDone">-</span></div>
+          <div class="row"><span class="label">OCR done -> armed</span><span id="ocrDoneToArmed">-</span></div>
+          <div class="row"><span class="label">Frame -> armed</span><span id="frameToArmed">-</span></div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;">
+          <button id="fullButton" type="button">Full Frame</button>
+          <button id="roiButton" type="button">ROI Cascade</button>
+          <button id="yodoOCRButton" type="button">YODO OCR</button>
+          <button id="yodoButton" type="button">YODO Mask</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" style="margin-top:14px;">
+      <details>
+        <summary>Show OCR debug text</summary>
+        <div class="label" style="margin-top: 10px;">Last OCR text</div>
+        <pre id="lastOCRText">-</pre>
+        <div class="label" style="margin-top: 10px;">Merged detection buffer</div>
+        <pre id="mergedText">-</pre>
+      </details>
+      <div id="events" class="events"></div>
+    </section>
   </main>
+
   <script>
-    const badge = document.getElementById("badge");
-    const stateEl = document.getElementById("state");
-    const lastMatchEl = document.getElementById("lastMatch");
-    const timestampEl = document.getElementById("timestamp");
-    const monitoringEl = document.getElementById("monitoring");
-    const ocrFramesEl = document.getElementById("ocrFrames");
-    const lastOCRAtEl = document.getElementById("lastOCRAt");
-    const ocrLatencyEl = document.getElementById("ocrLatency");
-    const snapshotLatencyEl = document.getElementById("snapshotLatency");
-    const preprocessLatencyEl = document.getElementById("preprocessLatency");
-    const lastFrameAtEl = document.getElementById("lastFrameAt");
-    const lastOCRTextEl = document.getElementById("lastOCRText");
-    const mergedTextEl = document.getElementById("mergedText");
-    const connectionEl = document.getElementById("connection");
-    const eventsEl = document.getElementById("events");
+    const modeInfo = {
+      fullFrame: {
+        title: "Full Frame",
+        copy: "Baseline mode. Every accepted frame is sent to Vision OCR after downscaling."
+      },
+      roiCascade: {
+        title: "ROI Cascade",
+        copy: "A cheap textness pass finds text-like regions first. Vision OCR only runs on cropped regions, so OCR cost should track text coverage instead of full screen area."
+      },
+      yodoOCR: {
+        title: "YODO OCR",
+        copy: "The broader YODO mask regions are used as OCR crops, then each crop is downscaled 2x before Vision. This tests whether coarse privacy-style masking can become a faster detector."
+      },
+      yodoMask: {
+        title: "YODO Mask",
+        copy: "A privacy-first experiment. Text-like regions are masked directly and OCR is skipped, so this page shows how aggressive the visual coverage would be."
+      }
+    };
+
+    const $ = (id) => document.getElementById(id);
+    const badge = $("badge");
+    const eventsEl = $("events");
+    let lastMode = "";
+
+    function formatMS(value) {
+      return typeof value === "number" ? `${Math.round(value)} ms` : "-";
+    }
+
+    function formatTime(value) {
+      return value ? new Date(value * 1000).toLocaleTimeString() : "-";
+    }
+
+    function formatPercent(value) {
+      return typeof value === "number" ? `${Math.round(value * 100)}%` : "0%";
+    }
+
+    async function setMode(mode) {
+      const route = mode === "roiCascade"
+        ? "roi"
+        : mode === "yodoMask"
+          ? "yodo"
+          : mode === "yodoOCR"
+            ? "yodo-ocr"
+            : "full";
+      await fetch(`/control/mode/${route}`, { method: "POST", cache: "no-store" });
+      await loadStatus();
+    }
+
+    function renderMode(mode) {
+      const info = modeInfo[mode] || modeInfo.fullFrame;
+      $("modeTitle").textContent = info.title;
+      $("modeCopy").textContent = info.copy;
+      $("fullButton").classList.toggle("active", mode === "fullFrame");
+      $("roiButton").classList.toggle("active", mode === "roiCascade");
+      $("yodoOCRButton").classList.toggle("active", mode === "yodoOCR");
+      $("yodoButton").classList.toggle("active", mode === "yodoMask");
+    }
 
     function renderStatus(data) {
       const state = (data.state || "clear").toLowerCase();
-      stateEl.textContent = state;
+      $("state").textContent = state;
       badge.className = "badge state-" + state;
-      lastMatchEl.textContent = data.lastMatch || "—";
-      timestampEl.textContent = data.timestamp
-        ? new Date(data.timestamp * 1000).toLocaleTimeString()
-        : "—";
-      monitoringEl.textContent = data.monitoring ? "yes" : "no";
-      ocrFramesEl.textContent = data.ocrFrames ?? 0;
-      lastOCRAtEl.textContent = data.lastOCRAt
-        ? new Date(data.lastOCRAt * 1000).toLocaleTimeString()
-        : "—";
-      ocrLatencyEl.textContent = typeof data.lastOCRLatencyMS === "number"
-        ? `${Math.round(data.lastOCRLatencyMS)} ms`
-        : "—";
-      snapshotLatencyEl.textContent = typeof data.lastSnapshotDurationMS === "number"
-        ? `${Math.round(data.lastSnapshotDurationMS)} ms`
-        : "—";
-      preprocessLatencyEl.textContent = typeof data.lastPreprocessDurationMS === "number"
-        ? `${Math.round(data.lastPreprocessDurationMS)} ms`
-        : "—";
-      lastFrameAtEl.textContent = data.lastFrameReceivedAt
-        ? new Date(data.lastFrameReceivedAt * 1000).toLocaleTimeString()
-        : "—";
-      lastOCRTextEl.textContent = data.lastOCRText || "—";
-      mergedTextEl.textContent = data.mergedText || "—";
+      const mode = data.pipelineMode || "fullFrame";
+      $("pipelineMode").textContent = mode;
+      $("ocrLatency").textContent = formatMS(data.lastOCRLatencyMS);
+      $("preprocessLatency").textContent = formatMS(data.lastPreprocessDurationMS);
+      $("ocrFrames").textContent = data.ocrFrames ?? 0;
+      $("roiImages").textContent = data.lastROIImageCount ?? 0;
+      $("textCoverage").textContent = formatPercent(data.lastTextRegionCoverage);
+      $("monitoring").textContent = data.monitoring ? "yes" : "no";
+      $("lastMatch").textContent = data.lastMatch || "-";
+      $("timestamp").textContent = formatTime(data.timestamp);
+      $("lastOCRAt").textContent = formatTime(data.lastOCRAt);
+      $("snapshotLatency").textContent = formatMS(data.lastSnapshotDurationMS);
+      $("lastFrameAt").textContent = formatTime(data.lastFrameReceivedAt);
+      $("pipelineStartedAt").textContent = formatTime(data.lastPipelineStartedAt);
+      $("preprocessDoneAt").textContent = formatTime(data.lastPreprocessDoneAt);
+      $("ocrWindow").textContent = `${formatTime(data.lastOCRStartedAt)} / ${formatTime(data.lastOCRDoneAt)}`;
+      $("stateTransitionAt").textContent = formatTime(data.lastStateTransitionAt);
+      $("textRegions").textContent = data.lastTextRegionCount ?? 0;
+      $("roiSkipped").textContent = data.lastROISkippedOCR ? "yes" : "no";
+      $("yodoRegions").textContent = data.lastYODORegionCount ?? 0;
+      $("yodoCoverage").textContent = formatPercent(data.lastYODOMaskCoverage);
+      $("frameToPipeline").textContent = formatMS(data.lastFrameToPipelineMS);
+      $("pipelineToPreprocess").textContent = formatMS(data.lastPipelineToPreprocessMS);
+      $("preprocessToOCRDone").textContent = formatMS(data.lastPreprocessToOCRDoneMS);
+      $("ocrDoneToArmed").textContent = formatMS(data.lastOCRDoneToArmedMS);
+      $("frameToArmed").textContent = formatMS(data.lastFrameToArmedMS);
+      $("lastOCRText").textContent = data.lastOCRText || "-";
+      $("mergedText").textContent = data.mergedText || "-";
+      if (mode !== lastMode) {
+        lastMode = mode;
+        renderMode(mode);
+      }
     }
 
     function pushEvent(text) {
@@ -180,9 +339,9 @@
       try {
         const res = await fetch("/status", { cache: "no-store" });
         renderStatus(await res.json());
-        if (connectionEl.textContent !== "live") connectionEl.textContent = "polling";
+        if ($("connection").textContent !== "live") $("connection").textContent = "polling";
       } catch {
-        connectionEl.textContent = "offline";
+        $("connection").textContent = "offline";
       }
     }
 
@@ -190,23 +349,28 @@
       const protocol = location.protocol === "https:" ? "wss" : "ws";
       const ws = new WebSocket(`${protocol}://${location.host}/events`);
       ws.onopen = () => {
-        connectionEl.textContent = "live";
+        $("connection").textContent = "live";
       };
       ws.onmessage = (event) => {
         const data = JSON.parse(event.data);
         if (data.event === "state_change") {
           renderStatus(data);
-          pushEvent(`${new Date().toLocaleTimeString()} ${data.previous} → ${data.state}`);
+          pushEvent(`${new Date().toLocaleTimeString()} ${data.previous} -> ${data.state}`);
         } else {
           renderStatus(data);
         }
       };
       ws.onclose = () => {
-        connectionEl.textContent = "reconnecting…";
+        $("connection").textContent = "reconnecting...";
         setTimeout(connectWebSocket, 1500);
       };
     }
 
+    $("fullButton").addEventListener("click", () => setMode("fullFrame"));
+    $("roiButton").addEventListener("click", () => setMode("roiCascade"));
+    $("yodoOCRButton").addEventListener("click", () => setMode("yodoOCR"));
+    $("yodoButton").addEventListener("click", () => setMode("yodoMask"));
+    renderMode("fullFrame");
     loadStatus();
     setInterval(loadStatus, 500);
     connectWebSocket();

@@ -44,15 +44,15 @@ final class WebStatusServer: @unchecked Sendable {
         webSocketConnections.removeAll()
     }
 
-    func broadcast(transition: StateTransition) {
-        let payload: [String: Any?] = [
-            "event": "state_change",
-            "previous": transition.previous.rawValue,
-            "state": transition.current.rawValue,
-            "lastMatch": transition.lastMatch,
-            "timestamp": Date().timeIntervalSince1970,
-        ]
-        guard let data = try? JSONSerialization.data(withJSONObject: payload.compactMapValues { $0 }) else { return }
+    func broadcast(transition: StateTransition, status: StatusPayload) {
+        let encoder = JSONEncoder()
+        guard let statusData = try? encoder.encode(status),
+              var payload = (try? JSONSerialization.jsonObject(with: statusData)) as? [String: Any] else { return }
+        payload["event"] = "state_change"
+        payload["previous"] = transition.previous.rawValue
+        payload["state"] = transition.current.rawValue
+        payload["lastMatch"] = transition.lastMatch
+        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
         let message = Self.frameMessage(opcode: 0x1, payload: data)
         for connection in webSocketConnections.values {
             connection.send(content: message, completion: .contentProcessed { _ in })
@@ -67,21 +67,57 @@ final class WebStatusServer: @unchecked Sendable {
                 connection.cancel()
                 return
             }
+            let path = Self.path(from: request)
             if request.contains("Upgrade: websocket") {
                 self.handleWebSocketUpgrade(connection: connection, request: request)
-            } else if request.contains("POST /control/start") || request.contains("GET /control/start") {
+            } else if path.hasPrefix("/control/") && !Self.isLoopback(connection: connection) {
+                self.sendForbidden(on: connection)
+            } else if path == "/control/start" {
                 self.controlHandler?("start")
                 self.sendJSON(on: connection, body: "{\"ok\":true,\"action\":\"start\"}")
-            } else if request.contains("POST /control/stop") || request.contains("GET /control/stop") {
+            } else if path == "/control/stop" {
                 self.controlHandler?("stop")
                 self.sendJSON(on: connection, body: "{\"ok\":true,\"action\":\"stop\"}")
-            } else if request.contains("GET /status") {
+            } else if path == "/control/mode/full" {
+                self.controlHandler?("mode/full")
+                self.sendJSON(on: connection, body: "{\"ok\":true,\"action\":\"mode/full\"}")
+            } else if path == "/control/mode/roi" {
+                self.controlHandler?("mode/roi")
+                self.sendJSON(on: connection, body: "{\"ok\":true,\"action\":\"mode/roi\"}")
+            } else if path == "/control/mode/yodo" {
+                self.controlHandler?("mode/yodo")
+                self.sendJSON(on: connection, body: "{\"ok\":true,\"action\":\"mode/yodo\"}")
+            } else if path == "/control/mode/yodo-ocr" {
+                self.controlHandler?("mode/yodo-ocr")
+                self.sendJSON(on: connection, body: "{\"ok\":true,\"action\":\"mode/yodo-ocr\"}")
+            } else if path == "/status" {
                 self.sendStatus(on: connection)
-            } else if request.contains("GET /") || request.contains("GET /index") {
+            } else if path == "/" || path == "/index" {
                 self.sendHTML(on: connection)
             } else {
                 self.sendNotFound(on: connection)
             }
+        }
+    }
+
+    private static func path(from request: String) -> String {
+        let requestLine = request.components(separatedBy: "\r\n").first ?? ""
+        let parts = requestLine.split(separator: " ")
+        guard parts.count >= 2 else { return "/" }
+        return String(parts[1].split(separator: "?", maxSplits: 1).first ?? "/")
+    }
+
+    private static func isLoopback(connection: NWConnection) -> Bool {
+        guard case .hostPort(let host, _) = connection.endpoint else { return false }
+        switch host {
+        case .ipv4(let address):
+            return address.debugDescription.hasPrefix("127.")
+        case .ipv6(let address):
+            return address.debugDescription == "::1"
+        case .name(let name, _):
+            return name == "localhost"
+        @unknown default:
+            return false
         }
     }
 
@@ -105,6 +141,15 @@ final class WebStatusServer: @unchecked Sendable {
             statusLine: "HTTP/1.1 200 OK",
             contentType: "application/json",
             body: body
+        )
+    }
+
+    private func sendForbidden(on connection: NWConnection) {
+        sendRawResponse(
+            on: connection,
+            statusLine: "HTTP/1.1 403 Forbidden",
+            contentType: "application/json",
+            body: "{\"ok\":false,\"error\":\"control endpoints require a loopback client\"}"
         )
     }
 
