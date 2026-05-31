@@ -1,6 +1,7 @@
 import CoreGraphics
 import CoreVideo
 import Foundation
+import StreamGuardCore
 
 struct PackedPixelLayout {
     let redOffset: Int
@@ -110,13 +111,20 @@ enum ImageDownscaler {
         return croppedImages(from: image, pixelBuffer: pixelBuffer, regions: regions, extraScale: max(factor, 1))
     }
 
+    static func prioritizedRegions(_ regions: [TextRegion]) -> [TextRegion] {
+        regions.sorted { lhs, rhs in
+            if lhs.textnessScore != rhs.textnessScore {
+                return lhs.textnessScore > rhs.textnessScore
+            }
+            return lhs.pixelRect.width * lhs.pixelRect.height < rhs.pixelRect.width * rhs.pixelRect.height
+        }
+    }
+
     static func adaptiveCroppedImagesForOCR(pixelBuffer: CVPixelBuffer, regions: [TextRegion]) -> [CGImage] {
         guard let image = imageForOCR(pixelBuffer: pixelBuffer) else { return [] }
-        return croppedImages(from: image, pixelBuffer: pixelBuffer, regions: regions) { crop in
-            let longEdge = max(crop.width, crop.height)
-            let shortEdge = min(crop.width, crop.height)
-            guard longEdge >= 900, shortEdge >= 220 else { return 1 }
-            return 2
+        let ordered = prioritizedRegions(regions)
+        return croppedImages(from: image, pixelBuffer: pixelBuffer, regions: ordered) { crop in
+            OCRImagePolicy.adaptiveCropDownscaleFactor(cropWidth: crop.width, cropHeight: crop.height)
         }
     }
 

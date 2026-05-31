@@ -35,7 +35,18 @@ public final class DetectionEngine: @unchecked Sendable {
         self.stateMachine.updateConfig(config.hysteresis)
     }
 
+    public func wouldTrigger(text: String) -> Bool {
+        !findMatches(in: text).isEmpty
+    }
+
     public func analyze(text: String) -> StateTransition? {
+        let matches = findMatches(in: text)
+        let hasMatch = !matches.isEmpty
+        let bestMatch = matches.first?.matched
+        return stateMachine.processFrame(hasMatch: hasMatch, matchText: bestMatch)
+    }
+
+    private func findMatches(in text: String) -> [MatchResult] {
         let normalized = TextNormalizer.normalize(text)
         let compact = TextNormalizer.compact(text)
         var matches: [MatchResult] = piiDetector.detect(in: normalized)
@@ -61,9 +72,7 @@ public final class DetectionEngine: @unchecked Sendable {
             }
         }
 
-        let hasMatch = !matches.isEmpty
-        let bestMatch = matches.first?.matched
-        return stateMachine.processFrame(hasMatch: hasMatch, matchText: bestMatch)
+        return matches
     }
 }
 

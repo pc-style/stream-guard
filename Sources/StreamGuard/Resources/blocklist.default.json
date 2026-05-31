@@ -28,6 +28,9 @@
     "enabled": false,
     "host": "127.0.0.1",
     "port": 4455,
-    "blackoutScene": "BLACKOUT"
+    "controlMode": "scene",
+    "blackoutScene": "BLACKOUT",
+    "protectedScene": "STREAM_GUARD_PROTECTED",
+    "blackoutSource": "STREAM_GUARD_BLACKOUT"
   }
 }

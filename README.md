@@ -36,6 +36,8 @@ While the app is running: [http://127.0.0.1:8765/](http://127.0.0.1:8765/) — J
 
 Set `"obs": { "enabled": true, ... }` in `blocklist.json`. Create a **BLACKOUT** scene in OBS; the app switches program scene on ARMED and restores the previous scene on CLEAR.
 
+For viewer-safe delayed output, use the OBS companion script in `obs/stream_guard_protector.lua`. It creates a delayed protected scene and a `STREAM_GUARD_BLACKOUT` source that Stream Guard can toggle before unsafe delayed frames reach viewers. See `docs/OBS_PROTECTOR.md`.
+
 ## Tests
 
 `make test` runs the `StreamGuardTestRunner` executable — a plain Swift test harness with `PASS`/`FAIL` output and a non-zero exit code on failure. No XCTest or full Xcode required.
@@ -50,10 +52,13 @@ First run creates `.venv-e2e` and installs Playwright + Chromium (`make live-tes
 
 1. Launches Stream Guard and auto-starts monitoring
 2. Opens **one** Playwright Chromium window and navigates in place (no tab spam)
-3. For each HTML fixture in `test-fixtures/`:
-   - Navigate to the sensitive page → time until `armed` + overlay visible
+3. For each pipeline mode (default: `yodo-ocr`, `roi`, `full`) and HTML fixture in `test-fixtures/`:
+   - Switch mode via `POST /control/mode/*`
+   - Navigate to the sensitive page → time until `armed` + overlay visible (match must look correct)
    - Navigate to `safe-control.html` → time until `clear` + overlay hidden
 4. Print a summary table and write a log to `.stream-guard-test-logs/`
+
+Override modes: `STREAM_GUARD_E2E_MODES=yodo-ocr make live-test`
 
 Requires Screen Recording permission for Stream Guard. Keep the Playwright window visible on screen for capture. Do not open the status page during the run (it pollutes OCR).
 

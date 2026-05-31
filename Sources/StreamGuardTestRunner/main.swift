@@ -141,6 +141,20 @@ struct StreamGuardTestRunner {
         show("compact", buffer.compactMergedText())
         expect(buffer.compactMergedText().contains("5551234567"), "text merge buffer")
 
+        section("OCR crop downscale policy")
+        expect(OCRImagePolicy.adaptiveCropDownscaleFactor(cropWidth: 640, cropHeight: 180) == 1, "terminal-sized crop stays 1x")
+        expect(OCRImagePolicy.adaptiveCropDownscaleFactor(cropWidth: 1200, cropHeight: 400) == 2, "large crop downscales 2x")
+
+        section("Detection engine: wouldTrigger")
+        var peekConfig = BlocklistConfig.default
+        peekConfig.hysteresis = HysteresisConfig(triggerFrames: 2, clearFrames: 2)
+        let peekEngine = DetectionEngine(config: peekConfig)
+        expect(peekEngine.wouldTrigger(text: "(555) 123-4567"), "wouldTrigger sees phone")
+        expect(!peekEngine.wouldTrigger(text: "no sensitive data"), "wouldTrigger negative")
+        expect(peekEngine.stateMachine.state == .clear, "wouldTrigger does not advance hysteresis")
+        _ = peekEngine.analyze(text: "(555) 123-4567")
+        expect(peekEngine.stateMachine.state == .suspect, "analyze advances hysteresis")
+
         section("Split-frame phone detection")
         var phoneConfig = BlocklistConfig.default
         phoneConfig.hysteresis = HysteresisConfig(triggerFrames: 1, clearFrames: 2)

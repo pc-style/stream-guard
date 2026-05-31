@@ -5,6 +5,14 @@ import Foundation
 struct TextRegion: Sendable, Equatable {
     let pixelRect: CGRect
     let normalizedRect: CGRect
+    /// Higher = more text-like cells per unit area (used to OCR likely PII regions first).
+    let textnessScore: Double
+
+    init(pixelRect: CGRect, normalizedRect: CGRect, textnessScore: Double = 0) {
+        self.pixelRect = pixelRect
+        self.normalizedRect = normalizedRect
+        self.textnessScore = textnessScore
+    }
 }
 
 struct TextRegionAnalysis: Sendable, Equatable {
@@ -190,6 +198,7 @@ enum TextRegionDetector {
     ) -> [TextRegion] {
         clusters
             .compactMap { cluster -> TextRegion? in
+                let cellCount = cluster.count
                 let columnsInCluster = cluster.map { $0 % columns }
                 let rowsInCluster = cluster.map { $0 / columns }
                 guard let minColumn = columnsInCluster.min(),
@@ -215,9 +224,16 @@ enum TextRegionDetector {
                     width: rect.width / CGFloat(width),
                     height: rect.height / CGFloat(height)
                 )
-                return TextRegion(pixelRect: rect, normalizedRect: normalized)
+                let area = max(1.0, Double(rect.width * rect.height))
+                let textnessScore = Double(cellCount) / area
+                return TextRegion(pixelRect: rect, normalizedRect: normalized, textnessScore: textnessScore)
             }
-            .sorted { $0.pixelRect.width * $0.pixelRect.height > $1.pixelRect.width * $1.pixelRect.height }
+            .sorted { lhs, rhs in
+                if lhs.textnessScore != rhs.textnessScore {
+                    return lhs.textnessScore > rhs.textnessScore
+                }
+                return lhs.pixelRect.width * lhs.pixelRect.height < rhs.pixelRect.width * rhs.pixelRect.height
+            }
             .prefix(maxRegions)
             .map { $0 }
     }
