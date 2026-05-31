@@ -12,33 +12,58 @@ final class VisionOCRService: @unchecked Sendable {
     }
 
     func updateConfig(_ config: OCRConfig) {
-        self.config = config
+        queue.async {
+            self.config = config
+        }
     }
 
     func recognize(image: CGImage, completion: @escaping (Result<[String], Error>) -> Void) {
-        queue.async {
-            let request = VNRecognizeTextRequest { request, error in
-                if let error {
-                    completion(.failure(error))
-                    return
-                }
-                let observations = request.results as? [VNRecognizedTextObservation] ?? []
-                let strings = observations.compactMap { observation in
-                    observation.topCandidates(1).first?.string
-                }
-                completion(.success(strings))
-            }
-            request.recognitionLevel = self.config.recognitionLevel == "accurate" ? .accurate : .fast
-            request.recognitionLanguages = ["en-US"]
-            request.usesLanguageCorrection = false
-            request.minimumTextHeight = self.config.minimumTextHeight
+        recognize(images: [image], completion: completion)
+    }
 
-            let handler = VNImageRequestHandler(cgImage: image, options: [:])
+    func recognize(images: [CGImage], completion: @escaping (Result<[String], Error>) -> Void) {
+        queue.async {
+            var allStrings: [String] = []
             do {
-                try handler.perform([request])
+                for image in images {
+                    var requestError: Error?
+                    let request = self.makeTextRequest { result in
+                        switch result {
+                        case .success(let strings):
+                            allStrings.append(contentsOf: strings)
+                        case .failure(let error):
+                            requestError = error
+                        }
+                    }
+                    let handler = VNImageRequestHandler(cgImage: image, options: [:])
+                    try handler.perform([request])
+                    if let requestError {
+                        throw requestError
+                    }
+                }
+                completion(.success(allStrings))
             } catch {
                 completion(.failure(error))
             }
         }
+    }
+
+    private func makeTextRequest(collector: @escaping (Result<[String], Error>) -> Void) -> VNRecognizeTextRequest {
+        let request = VNRecognizeTextRequest { request, error in
+            if let error {
+                collector(.failure(error))
+                return
+            }
+            let observations = request.results as? [VNRecognizedTextObservation] ?? []
+            let strings = observations.compactMap { observation in
+                observation.topCandidates(1).first?.string
+            }
+            collector(.success(strings))
+        }
+        request.recognitionLevel = config.recognitionLevel == "accurate" ? .accurate : .fast
+        request.recognitionLanguages = ["en-US"]
+        request.usesLanguageCorrection = false
+        request.minimumTextHeight = config.minimumTextHeight
+        return request
     }
 }

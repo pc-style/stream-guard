@@ -32,6 +32,7 @@ final class AppCoordinator: NSObject, ScreenCaptureDelegate {
     private var snapshotInFlight = false
     private var pendingPixelBuffer: CVPixelBuffer?
     private var pendingFrameSource: FrameSource?
+    private var pendingFrameReceivedAt: Date?
     private var lastOCRTime: CFAbsoluteTime = 0
     private var lastStreamFrameTime: CFAbsoluteTime = 0
     private var previousFingerprint: [UInt8]?
@@ -45,6 +46,23 @@ final class AppCoordinator: NSObject, ScreenCaptureDelegate {
     private var lastSnapshotDurationMS: Double?
     private var lastPreprocessDurationMS: Double?
     private var lastFrameReceivedAt: Date?
+    private var lastPipelineFrameReceivedAt: Date?
+    private var lastPipelineStartedAt: Date?
+    private var lastPreprocessDoneAt: Date?
+    private var lastOCRStartedAt: Date?
+    private var lastOCRDoneAt: Date?
+    private var lastStateTransitionAt: Date?
+    private var lastFrameToPipelineMS: Double?
+    private var lastPipelineToPreprocessMS: Double?
+    private var lastPreprocessToOCRDoneMS: Double?
+    private var lastOCRDoneToArmedMS: Double?
+    private var lastFrameToArmedMS: Double?
+    private var lastTextRegionCount = 0
+    private var lastTextRegionCoverage = 0.0
+    private var lastROIImageCount = 0
+    private var lastROISkippedOCR = false
+    private var lastYODORegionCount = 0
+    private var lastYODOMaskCoverage = 0.0
 
     var onStatusChange: ((String) -> Void)?
 
@@ -130,7 +148,24 @@ final class AppCoordinator: NSObject, ScreenCaptureDelegate {
             overlayVisible: overlay.visible,
             lastSnapshotDurationMS: lastSnapshotDurationMS,
             lastPreprocessDurationMS: lastPreprocessDurationMS,
-            lastFrameReceivedAt: lastFrameReceivedAt
+            lastFrameReceivedAt: lastFrameReceivedAt,
+            lastPipelineStartedAt: lastPipelineStartedAt,
+            lastPreprocessDoneAt: lastPreprocessDoneAt,
+            lastOCRStartedAt: lastOCRStartedAt,
+            lastOCRDoneAt: lastOCRDoneAt,
+            lastStateTransitionAt: lastStateTransitionAt,
+            lastFrameToPipelineMS: lastFrameToPipelineMS,
+            lastPipelineToPreprocessMS: lastPipelineToPreprocessMS,
+            lastPreprocessToOCRDoneMS: lastPreprocessToOCRDoneMS,
+            lastOCRDoneToArmedMS: lastOCRDoneToArmedMS,
+            lastFrameToArmedMS: lastFrameToArmedMS,
+            pipelineMode: config.pipeline.mode,
+            lastTextRegionCount: lastTextRegionCount,
+            lastTextRegionCoverage: lastTextRegionCoverage,
+            lastROIImageCount: lastROIImageCount,
+            lastROISkippedOCR: lastROISkippedOCR,
+            lastYODORegionCount: lastYODORegionCount,
+            lastYODOMaskCoverage: lastYODOMaskCoverage
         )
     }
 
@@ -156,6 +191,14 @@ final class AppCoordinator: NSObject, ScreenCaptureDelegate {
                         self?.startMonitoring()
                     case "stop":
                         self?.stopMonitoring()
+                    case "mode/full":
+                        self?.setPipelineMode(.fullFrame)
+                    case "mode/roi":
+                        self?.setPipelineMode(.roiCascade)
+                    case "mode/yodo":
+                        self?.setPipelineMode(.yodoMask)
+                    case "mode/yodo-ocr":
+                        self?.setPipelineMode(.yodoOCR)
                     default:
                         break
                     }
@@ -174,10 +217,23 @@ final class AppCoordinator: NSObject, ScreenCaptureDelegate {
     }
 
     private func applyConfig(_ newConfig: BlocklistConfig) {
+        let previousMode = config.pipeline.mode
         config = newConfig
         detectionEngine.updateConfig(newConfig)
         ocrService.updateConfig(newConfig.ocr)
         obsClient.updateConfig(newConfig.obs)
+        if previousMode != newConfig.pipeline.mode {
+            resetDetectionState()
+            overlay.hide()
+        }
+    }
+
+    private func setPipelineMode(_ mode: PipelineMode) {
+        guard config.pipeline.mode != mode else { return }
+        config.pipeline.mode = mode
+        resetDetectionState()
+        overlay.hide()
+        notify("Pipeline mode: \(mode.rawValue)")
     }
 
     private func resetDetectionState() {
@@ -190,6 +246,7 @@ final class AppCoordinator: NSObject, ScreenCaptureDelegate {
         snapshotInFlight = false
         pendingPixelBuffer = nil
         pendingFrameSource = nil
+        pendingFrameReceivedAt = nil
         lastOCRHadNoMatch = true
         ocrFrameCount = 0
         lastOCRText = ""
@@ -199,6 +256,23 @@ final class AppCoordinator: NSObject, ScreenCaptureDelegate {
         lastSnapshotDurationMS = nil
         lastPreprocessDurationMS = nil
         lastFrameReceivedAt = nil
+        lastPipelineFrameReceivedAt = nil
+        lastPipelineStartedAt = nil
+        lastPreprocessDoneAt = nil
+        lastOCRStartedAt = nil
+        lastOCRDoneAt = nil
+        lastStateTransitionAt = nil
+        lastFrameToPipelineMS = nil
+        lastPipelineToPreprocessMS = nil
+        lastPreprocessToOCRDoneMS = nil
+        lastOCRDoneToArmedMS = nil
+        lastFrameToArmedMS = nil
+        lastTextRegionCount = 0
+        lastTextRegionCoverage = 0
+        lastROIImageCount = 0
+        lastROISkippedOCR = false
+        lastYODORegionCount = 0
+        lastYODOMaskCoverage = 0
     }
 
     private func refreshOverlayExclusion() async {
@@ -208,6 +282,10 @@ final class AppCoordinator: NSObject, ScreenCaptureDelegate {
     }
 
     private static func loadStatusHTML() -> String {
+        if let url = Bundle.module.url(forResource: "status", withExtension: "html"),
+           let html = try? String(contentsOf: url) {
+            return html
+        }
         if let url = Bundle.main.url(forResource: "status", withExtension: "html"),
            let html = try? String(contentsOf: url) {
             return html
@@ -296,14 +374,15 @@ final class AppCoordinator: NSObject, ScreenCaptureDelegate {
         }
     }
 
-    private func enqueueFrame(pixelBuffer: CVPixelBuffer, source: FrameSource) {
-        lastFrameReceivedAt = Date()
+    private func enqueueFrame(pixelBuffer: CVPixelBuffer, source: FrameSource, receivedAt: Date = Date()) {
+        lastFrameReceivedAt = receivedAt
 
         if source == .stream {
             lastStreamFrameTime = CFAbsoluteTimeGetCurrent()
             if pendingFrameSource == .watchdogSnapshot {
                 pendingPixelBuffer = nil
                 pendingFrameSource = nil
+                pendingFrameReceivedAt = nil
             }
         }
 
@@ -313,6 +392,7 @@ final class AppCoordinator: NSObject, ScreenCaptureDelegate {
             if source == .stream || pendingFrameSource != .stream {
                 pendingPixelBuffer = pixelBuffer
                 pendingFrameSource = source
+                pendingFrameReceivedAt = receivedAt
             }
             return
         }
@@ -320,13 +400,23 @@ final class AppCoordinator: NSObject, ScreenCaptureDelegate {
         guard canAcceptNewPipelineWork(now: now) else {
             pendingPixelBuffer = pixelBuffer
             pendingFrameSource = source
+            pendingFrameReceivedAt = receivedAt
             return
         }
 
-        startPipeline(pixelBuffer: pixelBuffer)
+        startPipeline(pixelBuffer: pixelBuffer, frameReceivedAt: receivedAt)
     }
 
-    private func startPipeline(pixelBuffer: CVPixelBuffer) {
+    private func startPipeline(pixelBuffer: CVPixelBuffer, frameReceivedAt: Date) {
+        let pipelineStartedAt = Date()
+        lastPipelineFrameReceivedAt = frameReceivedAt
+        lastPipelineStartedAt = pipelineStartedAt
+        lastFrameToPipelineMS = pipelineStartedAt.timeIntervalSince(frameReceivedAt) * 1000
+        lastPreprocessDoneAt = nil
+        lastOCRStartedAt = nil
+        lastOCRDoneAt = nil
+        lastPipelineToPreprocessMS = nil
+        lastPreprocessToOCRDoneMS = nil
         let preprocessStarted = CFAbsoluteTimeGetCurrent()
 
         let fingerprint = FrameDiffGate.fingerprint(pixelBuffer: pixelBuffer)
@@ -337,45 +427,131 @@ final class AppCoordinator: NSObject, ScreenCaptureDelegate {
         if state == .clear,
            changeRatio < FrameDiffGate.unchangedThreshold,
            lastOCRHadNoMatch {
-            lastPreprocessDurationMS = (CFAbsoluteTimeGetCurrent() - preprocessStarted) * 1000
+            markPreprocessDone(startedAt: preprocessStarted)
             drainPendingFrameIfAny()
             return
         }
 
-        guard let image = ImageDownscaler.imageForOCR(pixelBuffer: pixelBuffer) else {
-            drainPendingFrameIfAny()
-            return
+        switch config.pipeline.mode {
+        case .fullFrame:
+            startFullFrameOCR(pixelBuffer: pixelBuffer, preprocessStarted: preprocessStarted)
+        case .roiCascade:
+            startROICascade(pixelBuffer: pixelBuffer, preprocessStarted: preprocessStarted)
+        case .yodoMask:
+            runYODOMaskPass(pixelBuffer: pixelBuffer, preprocessStarted: preprocessStarted)
+        case .yodoOCR:
+            startYODOOCR(pixelBuffer: pixelBuffer, preprocessStarted: preprocessStarted)
         }
+    }
 
+    private func markPreprocessDone(startedAt preprocessStarted: CFAbsoluteTime) {
+        let doneAt = Date()
+        lastPreprocessDoneAt = doneAt
         lastPreprocessDurationMS = (CFAbsoluteTimeGetCurrent() - preprocessStarted) * 1000
+        if let pipelineStartedAt = lastPipelineStartedAt {
+            lastPipelineToPreprocessMS = doneAt.timeIntervalSince(pipelineStartedAt) * 1000
+        }
+    }
 
+    private func startFullFrameOCR(pixelBuffer: CVPixelBuffer, preprocessStarted: CFAbsoluteTime) {
+        resetRegionMetricsForFullFrame()
+        guard let image = ImageDownscaler.imageForOCR(pixelBuffer: pixelBuffer) else {
+            markPreprocessDone(startedAt: preprocessStarted)
+            drainPendingFrameIfAny()
+            return
+        }
+
+        markPreprocessDone(startedAt: preprocessStarted)
+        startOCR(images: [image])
+    }
+
+    private func startROICascade(pixelBuffer: CVPixelBuffer, preprocessStarted: CFAbsoluteTime) {
+        let analysis = TextRegionDetector.analyze(pixelBuffer: pixelBuffer)
+        recordRegionAnalysis(analysis)
+        let images = ImageDownscaler.croppedImagesForOCR(pixelBuffer: pixelBuffer, regions: analysis.roiRegions)
+        lastROIImageCount = images.count
+        lastROISkippedOCR = images.isEmpty
+
+        if images.isEmpty {
+            markPreprocessDone(startedAt: preprocessStarted)
+            finishRecognizedStrings([])
+            drainPendingFrameIfAny()
+            return
+        }
+
+        markPreprocessDone(startedAt: preprocessStarted)
+        startOCR(images: images)
+    }
+
+    private func runYODOMaskPass(pixelBuffer: CVPixelBuffer, preprocessStarted: CFAbsoluteTime) {
+        let analysis = TextRegionDetector.analyze(pixelBuffer: pixelBuffer)
+        recordRegionAnalysis(analysis)
+        lastROIImageCount = 0
+        lastROISkippedOCR = true
+        markPreprocessDone(startedAt: preprocessStarted)
+        lastOCRText = "YODO mask mode: OCR skipped"
+        lastMergedText = ""
+        lastOCRHadNoMatch = true
+
+        if config.pipeline.yodoShowsMasks {
+            overlay.showMasks(analysis.yodoMaskRegions.map(\.normalizedRect))
+        }
+
+        let transition = detectionEngine.analyze(text: "")
+        if let transition {
+            handleTransition(transition)
+        }
+        drainPendingFrameIfAny()
+    }
+
+    private func startYODOOCR(pixelBuffer: CVPixelBuffer, preprocessStarted: CFAbsoluteTime) {
+        let analysis = TextRegionDetector.analyze(pixelBuffer: pixelBuffer)
+        recordRegionAnalysis(analysis)
+        let images = ImageDownscaler.downscaledCroppedImagesForOCR(
+            pixelBuffer: pixelBuffer,
+            regions: analysis.yodoMaskRegions,
+            factor: 2
+        )
+        lastROIImageCount = images.count
+        lastROISkippedOCR = images.isEmpty
+
+        if config.pipeline.yodoShowsMasks {
+            overlay.showMasks(analysis.yodoMaskRegions.map(\.normalizedRect))
+        }
+
+        if images.isEmpty {
+            markPreprocessDone(startedAt: preprocessStarted)
+            finishRecognizedStrings([])
+            drainPendingFrameIfAny()
+            return
+        }
+
+        markPreprocessDone(startedAt: preprocessStarted)
+        startOCR(images: images)
+    }
+
+    private func startOCR(images: [CGImage]) {
         pipelineInFlight = true
         let now = CFAbsoluteTimeGetCurrent()
         lastOCRTime = now
+        lastOCRStartedAt = Date()
         let ocrStartedAt = CFAbsoluteTimeGetCurrent()
 
-        ocrService.recognize(image: image) { [weak self] result in
+        ocrService.recognize(images: images) { [weak self] result in
             Task { @MainActor in
                 guard let self else { return }
                 self.pipelineInFlight = false
+                let ocrDoneAt = Date()
                 self.lastOCRLatencyMS = (CFAbsoluteTimeGetCurrent() - ocrStartedAt) * 1000
-                self.lastOCRAt = Date()
+                self.lastOCRAt = ocrDoneAt
+                self.lastOCRDoneAt = ocrDoneAt
+                if let preprocessDoneAt = self.lastPreprocessDoneAt {
+                    self.lastPreprocessToOCRDoneMS = ocrDoneAt.timeIntervalSince(preprocessDoneAt) * 1000
+                }
                 switch result {
                 case .success(let strings):
                     self.ocrFrameCount += 1
-                    self.lastOCRText = strings.joined(separator: " | ")
-                    for string in strings {
-                        self.textBuffer.append(string)
-                    }
-                    let merged = self.textBuffer.mergedText()
-                    let compactMerged = self.textBuffer.compactMergedText()
-                    self.lastMergedText = merged
-                    let analysisText = compactMerged.isEmpty ? merged : "\(merged)\n\(compactMerged)"
-                    let transition = self.detectionEngine.analyze(text: analysisText)
-                    self.lastOCRHadNoMatch = self.detectionEngine.stateMachine.state == .clear
-                    if let transition {
-                        self.handleTransition(transition)
-                    }
+                    self.finishRecognizedStrings(strings)
                 case .failure(let error):
                     self.lastOCRText = "OCR error: \(error.localizedDescription)"
                     self.lastOCRHadNoMatch = false
@@ -384,6 +560,38 @@ final class AppCoordinator: NSObject, ScreenCaptureDelegate {
                 self.drainPendingFrameIfAny()
             }
         }
+    }
+
+    private func finishRecognizedStrings(_ strings: [String]) {
+        lastOCRText = strings.joined(separator: " | ")
+        for string in strings {
+            textBuffer.append(string)
+        }
+        let merged = textBuffer.mergedText()
+        let compactMerged = textBuffer.compactMergedText()
+        lastMergedText = merged
+        let analysisText = compactMerged.isEmpty ? merged : "\(merged)\n\(compactMerged)"
+        let transition = detectionEngine.analyze(text: analysisText)
+        lastOCRHadNoMatch = detectionEngine.stateMachine.state == .clear
+        if let transition {
+            handleTransition(transition)
+        }
+    }
+
+    private func recordRegionAnalysis(_ analysis: TextRegionAnalysis) {
+        lastTextRegionCount = analysis.roiRegions.count
+        lastTextRegionCoverage = analysis.roiCoverage
+        lastYODORegionCount = analysis.yodoMaskRegions.count
+        lastYODOMaskCoverage = analysis.yodoMaskCoverage
+    }
+
+    private func resetRegionMetricsForFullFrame() {
+        lastTextRegionCount = 0
+        lastTextRegionCoverage = 1
+        lastROIImageCount = 1
+        lastROISkippedOCR = false
+        lastYODORegionCount = 0
+        lastYODOMaskCoverage = 0
     }
 
     /// Drains a frame queued only because `canAcceptNewPipelineWork` was false (OCR interval).
@@ -396,13 +604,31 @@ final class AppCoordinator: NSObject, ScreenCaptureDelegate {
 
     private func drainPendingFrameIfAny() {
         guard let buffer = pendingPixelBuffer, let source = pendingFrameSource else { return }
+        let receivedAt = pendingFrameReceivedAt ?? Date()
         pendingPixelBuffer = nil
         pendingFrameSource = nil
-        enqueueFrame(pixelBuffer: buffer, source: source)
+        pendingFrameReceivedAt = nil
+        enqueueFrame(pixelBuffer: buffer, source: source, receivedAt: receivedAt)
     }
 
     private func handleTransition(_ transition: StateTransition) {
-        webServer?.broadcast(transition: transition)
+        let transitionAt = Date()
+        lastStateTransitionAt = transitionAt
+        switch transition.current {
+        case .armed:
+            if let ocrDoneAt = lastOCRDoneAt {
+                lastOCRDoneToArmedMS = transitionAt.timeIntervalSince(ocrDoneAt) * 1000
+            }
+            if let frameReceivedAt = lastPipelineFrameReceivedAt {
+                lastFrameToArmedMS = transitionAt.timeIntervalSince(frameReceivedAt) * 1000
+            }
+        case .clear:
+            lastOCRDoneToArmedMS = nil
+            lastFrameToArmedMS = nil
+        case .suspect:
+            break
+        }
+        webServer?.broadcast(transition: transition, status: currentStatusPayload())
         switch transition.current {
         case .armed:
             overlay.show()

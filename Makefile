@@ -1,4 +1,4 @@
-.PHONY: build run test live-test live-test-deps clean
+.PHONY: build run test live-test live-test-deps benchmark-pipelines clean
 
 INFO_PLIST := Resources/Info.plist
 BUILD_FLAGS := -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __info_plist -Xlinker $(INFO_PLIST)
@@ -23,6 +23,9 @@ live-test-deps:
 
 live-test: build live-test-deps
 	$(E2E_PYTHON) scripts/e2e-live-test.py
+
+benchmark-pipelines: build live-test-deps
+	$(E2E_PYTHON) scripts/benchmark-pipelines.py
 
 clean:
 	swift package clean
