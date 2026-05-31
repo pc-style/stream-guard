@@ -1,0 +1,7 @@
+.build/
+.swiftpm/
+.DS_Store
+.venv-e2e/
+.stream-guard-test-logs/
+improvements/
+.cursor/

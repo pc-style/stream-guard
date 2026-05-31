@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Stream Guard Fake Terminal Fixture</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: "SF Mono", Menlo, Monaco, Consolas, monospace;
+      background: #05070a;
+      color: #d2f8d2;
+    }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background:
+        radial-gradient(circle at top left, rgba(0, 255, 148, 0.14), transparent 34rem),
+        linear-gradient(135deg, #05070a, #111724 58%, #05070a);
+    }
+    .terminal {
+      width: min(1100px, calc(100vw - 48px));
+      border: 1px solid #314055;
+      border-radius: 14px;
+      overflow: hidden;
+      box-shadow: 0 24px 90px rgba(0, 0, 0, 0.62);
+      background: rgba(7, 12, 18, 0.94);
+    }
+    .bar {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      padding: 12px 16px;
+      background: #151c27;
+      color: #8fa3bc;
+      font-size: 14px;
+    }
+    .dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: #ff5f57;
+    }
+    .dot:nth-child(2) { background: #ffbd2e; }
+    .dot:nth-child(3) { background: #28c840; }
+    .title { margin-left: 10px; }
+    pre {
+      margin: 0;
+      padding: 28px;
+      font-size: clamp(18px, 2.4vw, 32px);
+      line-height: 1.35;
+      white-space: pre-wrap;
+    }
+    .prompt { color: #54e39c; }
+    .warn { color: #ffd166; }
+    .leak { color: #ff6b6b; font-weight: 700; }
+    .safe { color: #8fa3bc; }
+  </style>
+</head>
+<body>
+  <main class="terminal" aria-label="Fake terminal with test sensitive text">
+    <div class="bar">
+      <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+      <span class="title">ghostty - fake deploy logs</span>
+    </div>
+    <pre><span class="prompt">$</span> stream deploy --dry-run
+<span class="safe">[info]</span> checking user profile
+<span class="warn">[warn]</span> possible leaked contact:
+       email: <span class="leak">leak-test@example.com</span>
+       phone: <span class="leak">(555) 123-4567</span>
+       site:  <span class="leak">https://secret.example.test/login</span>
+
+<span class="safe">[info]</span> phrase fixture:
+       <span class="leak">exact-ban</span>
+       <span class="leak">bad phrase</span>
+
+<span class="prompt">$</span> waiting for Stream Guard to arm...</pre>
+  </main>
+</body>
+</html>

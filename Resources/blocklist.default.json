@@ -1,0 +1,29 @@
+{
+  "phrases": [
+    { "text": "example-banned-term", "fuzzy": true },
+    { "text": "exact-ban", "fuzzy": false },
+    { "text": "bad phrase", "fuzzy": false },
+    { "text": "secret example test", "fuzzy": true },
+    { "text": "private stream notes", "fuzzy": false }
+  ],
+  "patterns": {
+    "phone": true,
+    "email": true,
+    "ssn": false
+  },
+  "hysteresis": {
+    "triggerFrames": 1,
+    "clearFrames": 3
+  },
+  "ocr": {
+    "fps": 6,
+    "recognitionLevel": "fast",
+    "minimumTextHeight": 0.01
+  },
+  "obs": {
+    "enabled": false,
+    "host": "127.0.0.1",
+    "port": 4455,
+    "blackoutScene": "BLACKOUT"
+  }
+}

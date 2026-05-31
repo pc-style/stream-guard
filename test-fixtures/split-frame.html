@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Stream Guard Split Frame Fixture</title>
+  <style>
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background: #070711;
+      color: white;
+      font-family: "SF Mono", Menlo, Monaco, Consolas, monospace;
+      overflow: hidden;
+    }
+    .panel {
+      width: min(1000px, calc(100vw - 48px));
+      padding: 44px;
+      border-radius: 24px;
+      background: linear-gradient(180deg, #17182b, #090914);
+      border: 1px solid #3d416c;
+      box-shadow: 0 24px 100px rgba(80, 75, 255, 0.25);
+    }
+    h1 {
+      margin: 0 0 22px;
+      font-size: clamp(28px, 5vw, 64px);
+    }
+    .row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 28px;
+      margin-top: 18px;
+      font-size: clamp(26px, 5vw, 76px);
+      font-weight: 800;
+    }
+    .chunk {
+      flex: 1;
+      padding: 24px;
+      border-radius: 18px;
+      text-align: center;
+      background: #eff6ff;
+      color: #0b1020;
+    }
+    .gap {
+      font-size: clamp(18px, 3vw, 42px);
+      color: #aab2ff;
+    }
+    p {
+      color: #b9bfdd;
+      font-size: clamp(16px, 2vw, 24px);
+      line-height: 1.5;
+    }
+    .phone-line {
+      font-size: clamp(28px, 4vw, 56px);
+      color: #ffffff;
+      margin: 0 0 18px;
+    }
+    .phone-line strong {
+      color: #0b1020;
+      background: #f5d35f;
+      padding: 0.1em 0.35em;
+      border-radius: 8px;
+    }
+  </style>
+</head>
+<body>
+  <main class="panel">
+    <h1>Split Phone Fixture</h1>
+    <p>This is designed to exercise OCR merge behavior. The number is visually separated but should still be caught by compact matching.</p>
+    <p class="phone-line">phone: <strong>555</strong> <strong>123-4567</strong></p>
+    <div class="row">
+      <div class="chunk">555</div>
+      <div class="gap">then</div>
+      <div class="chunk">123-4567</div>
+    </div>
+  </main>
+</body>
+</html>
