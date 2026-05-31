@@ -11,6 +11,8 @@ protocol ScreenCaptureDelegate: AnyObject {
 }
 
 final class ScreenCaptureManager: NSObject, @unchecked Sendable {
+    static let ocrMaxLongEdge = 1280
+
     weak var delegate: ScreenCaptureDelegate?
 
     private var stream: SCStream?
@@ -18,11 +20,26 @@ final class ScreenCaptureManager: NSObject, @unchecked Sendable {
     private var excludedWindowIDs: [CGWindowID] = []
     private var contentFilter: SCContentFilter?
     private var streamConfiguration: SCStreamConfiguration?
+    private var captureDisplay: SCDisplay?
 
     var isRunning: Bool { stream != nil }
 
-    func setExcludedWindows(_ windowIDs: [CGWindowID]) {
+    /// Dimensions for ScreenCaptureKit capture aligned with Vision OCR input size.
+    static func ocrCaptureDimensions(displayWidth: Int, displayHeight: Int) -> (width: Int, height: Int) {
+        let longEdge = max(displayWidth, displayHeight)
+        guard longEdge > ocrMaxLongEdge else {
+            return (displayWidth, displayHeight)
+        }
+        let scale = Double(ocrMaxLongEdge) / Double(longEdge)
+        return (
+            max(1, Int(Double(displayWidth) * scale)),
+            max(1, Int(Double(displayHeight) * scale))
+        )
+    }
+
+    func setExcludedWindows(_ windowIDs: [CGWindowID]) async {
         excludedWindowIDs = windowIDs
+        await refreshContentFilterIfNeeded()
     }
 
     func requestPermission() -> Bool {
@@ -47,10 +64,16 @@ final class ScreenCaptureManager: NSObject, @unchecked Sendable {
             throw CaptureError.noDisplay
         }
 
+        captureDisplay = display
         let filter = SCContentFilter(display: display, excludingWindows: excludedWindows(from: content))
+        let (captureWidth, captureHeight) = Self.ocrCaptureDimensions(
+            displayWidth: display.width,
+            displayHeight: display.height
+        )
+
         let configuration = SCStreamConfiguration()
-        configuration.width = display.width
-        configuration.height = display.height
+        configuration.width = captureWidth
+        configuration.height = captureHeight
         configuration.minimumFrameInterval = CMTime(value: 1, timescale: 30)
         configuration.queueDepth = 4
         configuration.showsCursor = false
@@ -70,9 +93,7 @@ final class ScreenCaptureManager: NSObject, @unchecked Sendable {
         self.streamConfiguration = configuration
     }
 
-    /// Pulls a fresh frame on demand, independent of `SCStream`'s change-driven
-    /// delivery (which withholds frames while the screen is static). Reuses the
-    /// stream's content filter so window exclusions stay consistent.
+    /// Pulls a fresh frame on demand when the screen is static (clear hysteresis watchdog).
     func captureSnapshot() async -> CVPixelBuffer? {
         guard let contentFilter, let streamConfiguration else { return nil }
         if #available(macOS 14.0, *) {
@@ -97,6 +118,27 @@ final class ScreenCaptureManager: NSObject, @unchecked Sendable {
         streamOutput = nil
         contentFilter = nil
         streamConfiguration = nil
+        captureDisplay = nil
+    }
+
+    private func refreshContentFilterIfNeeded() async {
+        guard let stream, let display = captureDisplay else { return }
+        do {
+            let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+            let filter = SCContentFilter(display: display, excludingWindows: excludedWindows(from: content))
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                stream.updateContentFilter(filter) { error in
+                    if let error {
+                        continuation.resume(throwing: error)
+                    } else {
+                        continuation.resume()
+                    }
+                }
+            }
+            contentFilter = filter
+        } catch {
+            // Best-effort; stale filter is non-fatal.
+        }
     }
 
     private func excludedWindows(from content: SCShareableContent) -> [SCWindow] {

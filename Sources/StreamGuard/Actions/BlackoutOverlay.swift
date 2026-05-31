@@ -10,24 +10,42 @@ final class BlackoutOverlay: @unchecked Sendable {
         return CGWindowID(window.windowNumber)
     }
 
+    /// Create the overlay window hidden so the first arm does not pay window construction cost.
+    func prepareWindow() {
+        runOnMain {
+            self.ensureWindow()
+        }
+    }
+
     func show() {
-        DispatchQueue.main.async {
-            if self.window == nil {
-                self.createWindow()
-            }
+        runOnMain {
+            self.ensureWindow()
             self.window?.orderFrontRegardless()
             self.isVisible = true
         }
     }
 
     func hide() {
-        DispatchQueue.main.async {
+        runOnMain {
             self.window?.orderOut(nil)
             self.isVisible = false
         }
     }
 
     var visible: Bool { isVisible }
+
+    private func runOnMain(_ work: @escaping () -> Void) {
+        if Thread.isMainThread {
+            work()
+        } else {
+            DispatchQueue.main.async(execute: work)
+        }
+    }
+
+    private func ensureWindow() {
+        guard window == nil else { return }
+        createWindow()
+    }
 
     private func createWindow() {
         guard let screen = NSScreen.main else { return }

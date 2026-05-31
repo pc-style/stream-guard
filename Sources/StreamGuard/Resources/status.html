@@ -109,6 +109,9 @@
       <div class="row"><span class="label">OCR frames</span><span id="ocrFrames">0</span></div>
       <div class="row"><span class="label">Last OCR</span><span id="lastOCRAt">—</span></div>
       <div class="row"><span class="label">OCR latency</span><span id="ocrLatency">—</span></div>
+      <div class="row"><span class="label">Snapshot</span><span id="snapshotLatency">—</span></div>
+      <div class="row"><span class="label">Preprocess</span><span id="preprocessLatency">—</span></div>
+      <div class="row"><span class="label">Last frame</span><span id="lastFrameAt">—</span></div>
       <div class="row"><span class="label">Connection</span><span id="connection">connecting…</span></div>
     </div>
     <details class="debug">
@@ -129,6 +132,9 @@
     const ocrFramesEl = document.getElementById("ocrFrames");
     const lastOCRAtEl = document.getElementById("lastOCRAt");
     const ocrLatencyEl = document.getElementById("ocrLatency");
+    const snapshotLatencyEl = document.getElementById("snapshotLatency");
+    const preprocessLatencyEl = document.getElementById("preprocessLatency");
+    const lastFrameAtEl = document.getElementById("lastFrameAt");
     const lastOCRTextEl = document.getElementById("lastOCRText");
     const mergedTextEl = document.getElementById("mergedText");
     const connectionEl = document.getElementById("connection");
@@ -149,6 +155,15 @@
         : "—";
       ocrLatencyEl.textContent = typeof data.lastOCRLatencyMS === "number"
         ? `${Math.round(data.lastOCRLatencyMS)} ms`
+        : "—";
+      snapshotLatencyEl.textContent = typeof data.lastSnapshotDurationMS === "number"
+        ? `${Math.round(data.lastSnapshotDurationMS)} ms`
+        : "—";
+      preprocessLatencyEl.textContent = typeof data.lastPreprocessDurationMS === "number"
+        ? `${Math.round(data.lastPreprocessDurationMS)} ms`
+        : "—";
+      lastFrameAtEl.textContent = data.lastFrameReceivedAt
+        ? new Date(data.lastFrameReceivedAt * 1000).toLocaleTimeString()
         : "—";
       lastOCRTextEl.textContent = data.lastOCRText || "—";
       mergedTextEl.textContent = data.mergedText || "—";

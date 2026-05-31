@@ -32,7 +32,7 @@ FIXTURE_PAGES = [
     "split-frame.html",
 ]
 TIMEOUT_S = float(os.environ.get("STREAM_GUARD_TEST_TIMEOUT", "20"))
-POLL_S = float(os.environ.get("STREAM_GUARD_TEST_POLL", "0.15"))
+POLL_S = float(os.environ.get("STREAM_GUARD_TEST_POLL", "0.05"))
 SETTLE_S = float(os.environ.get("STREAM_GUARD_SETTLE", "2.0"))
 LOG_DIR = ROOT / ".stream-guard-test-logs"
 BUILD_FLAGS = [
@@ -200,10 +200,17 @@ def wait_until(predicate, timeout_s: float, log_file: Path, label: str) -> tuple
         if last is None:
             time.sleep(POLL_S)
             continue
+        timing = ""
+        if last.get("lastOCRLatencyMS") is not None:
+            timing = (
+                f" ocr={last.get('lastOCRLatencyMS'):.0f}ms"
+                f" snap={last.get('lastSnapshotDurationMS')}"
+                f" prep={last.get('lastPreprocessDurationMS')}"
+            )
         line = (
             f"  poll {label}: state={last.get('state')} "
             f"overlay={last.get('overlayVisible')} "
-            f"match={last.get('lastMatch') or '—'}"
+            f"match={last.get('lastMatch') or '—'}{timing}"
         )
         if line != last_line:
             log(line, log_file)
@@ -240,7 +247,14 @@ def run_fixture(name: str, path: Path, browser: PlaywrightSession, log_file: Pat
     arm_ms = (now_ms() - t_open) if armed_ok else None
     last_match = armed_status.get("lastMatch") if armed_status else None
     if armed_ok:
-        log(f"ARM latency: {arm_ms:.1f} ms (match={last_match})", log_file)
+        snap = armed_status.get("lastSnapshotDurationMS") if armed_status else None
+        prep = armed_status.get("lastPreprocessDurationMS") if armed_status else None
+        ocr = armed_status.get("lastOCRLatencyMS") if armed_status else None
+        log(
+            f"ARM latency: {arm_ms:.1f} ms (match={last_match}) "
+            f"[ocr={ocr}ms snap={snap}ms prep={prep}ms]",
+            log_file,
+        )
     else:
         log(f"FAIL: did not arm within {TIMEOUT_S}s", log_file)
 

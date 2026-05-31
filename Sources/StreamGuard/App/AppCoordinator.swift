@@ -8,6 +8,14 @@ import StreamGuardCore
 final class AppCoordinator: NSObject, ScreenCaptureDelegate {
     static let shared = AppCoordinator()
 
+    private enum FrameSource {
+        case stream
+        case watchdogSnapshot
+    }
+
+    /// When no SCStream frame arrives within this interval, pull a watchdog snapshot.
+    private static let streamWatchdogStaleInterval: CFAbsoluteTime = 0.5
+
     private let captureManager = ScreenCaptureManager()
     private let overlay = BlackoutOverlay()
     private var ocrService: VisionOCRService
@@ -20,16 +28,23 @@ final class AppCoordinator: NSObject, ScreenCaptureDelegate {
 
     private var isMonitoring = false
     private var captureTimer: Timer?
+    private var pipelineInFlight = false
     private var snapshotInFlight = false
-    private var ocrInFlight = false
+    private var pendingPixelBuffer: CVPixelBuffer?
+    private var pendingFrameSource: FrameSource?
     private var lastOCRTime: CFAbsoluteTime = 0
+    private var lastStreamFrameTime: CFAbsoluteTime = 0
     private var previousFingerprint: [UInt8]?
+    private var lastOCRHadNoMatch = true
     private var permissionGrantedAfterRequest = false
     private var ocrFrameCount = 0
     private var lastOCRText = ""
     private var lastMergedText = ""
     private var lastOCRLatencyMS: Double?
     private var lastOCRAt: Date?
+    private var lastSnapshotDurationMS: Double?
+    private var lastPreprocessDurationMS: Double?
+    private var lastFrameReceivedAt: Date?
 
     var onStatusChange: ((String) -> Void)?
 
@@ -44,7 +59,6 @@ final class AppCoordinator: NSObject, ScreenCaptureDelegate {
         captureManager.delegate = self
         setupWebServer()
         setupConfigWatcher()
-        updateOverlayExclusion()
     }
 
     func applicationDidFinishLaunching() {
@@ -75,10 +89,12 @@ final class AppCoordinator: NSObject, ScreenCaptureDelegate {
         Task {
             do {
                 resetDetectionState()
-                updateOverlayExclusion()
+                overlay.prepareWindow()
                 try await captureManager.start()
                 isMonitoring = true
+                lastStreamFrameTime = CFAbsoluteTimeGetCurrent()
                 startCaptureTimer()
+                await refreshOverlayExclusion()
                 notify("Monitoring started")
             } catch {
                 notify(error.localizedDescription)
@@ -111,7 +127,10 @@ final class AppCoordinator: NSObject, ScreenCaptureDelegate {
             mergedText: lastMergedText,
             lastOCRLatencyMS: lastOCRLatencyMS,
             lastOCRAt: lastOCRAt,
-            overlayVisible: overlay.visible
+            overlayVisible: overlay.visible,
+            lastSnapshotDurationMS: lastSnapshotDurationMS,
+            lastPreprocessDurationMS: lastPreprocessDurationMS,
+            lastFrameReceivedAt: lastFrameReceivedAt
         )
     }
 
@@ -166,19 +185,26 @@ final class AppCoordinator: NSObject, ScreenCaptureDelegate {
         detectionEngine.stateMachine.reset()
         previousFingerprint = nil
         lastOCRTime = 0
-        ocrInFlight = false
+        lastStreamFrameTime = 0
+        pipelineInFlight = false
+        snapshotInFlight = false
+        pendingPixelBuffer = nil
+        pendingFrameSource = nil
+        lastOCRHadNoMatch = true
         ocrFrameCount = 0
         lastOCRText = ""
         lastMergedText = ""
         lastOCRLatencyMS = nil
         lastOCRAt = nil
+        lastSnapshotDurationMS = nil
+        lastPreprocessDurationMS = nil
+        lastFrameReceivedAt = nil
     }
 
-    private func updateOverlayExclusion() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            guard let self, let windowID = self.overlay.windowID else { return }
-            self.captureManager.setExcludedWindows([windowID])
-        }
+    private func refreshOverlayExclusion() async {
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        guard let windowID = overlay.windowID else { return }
+        await captureManager.setExcludedWindows([windowID])
     }
 
     private static func loadStatusHTML() -> String {
@@ -199,22 +225,14 @@ final class AppCoordinator: NSObject, ScreenCaptureDelegate {
 
     // MARK: - Capture cadence
 
-    /// `SCStream` only emits frames when the screen content changes, so a static
-    /// page (or our blackout overlay) starves the OCR pipeline and the hysteresis
-    /// state machine can never accumulate the clean frames needed to clear. This
-    /// timer pulls fresh frames at the OCR rate to give detection a steady clock.
+    /// Watchdog timer: SCStream drives arming on content change; snapshots only when the stream
+    /// is stale or we need static-frame samples for clear hysteresis.
     private func startCaptureTimer() {
         captureTimer?.invalidate()
         let interval = 1.0 / max(config.ocr.fps, 1.0)
         let timer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                guard let self, self.isMonitoring, !self.snapshotInFlight else { return }
-                self.snapshotInFlight = true
-                let buffer = await self.captureManager.captureSnapshot()
-                self.snapshotInFlight = false
-                if let buffer {
-                    self.processFrame(pixelBuffer: buffer)
-                }
+                await self?.runWatchdogTickIfNeeded()
             }
         }
         RunLoop.main.add(timer, forMode: .common)
@@ -227,11 +245,47 @@ final class AppCoordinator: NSObject, ScreenCaptureDelegate {
         snapshotInFlight = false
     }
 
+    private func runWatchdogTickIfNeeded() async {
+        guard isMonitoring else { return }
+        let now = CFAbsoluteTimeGetCurrent()
+        guard shouldRunWatchdogSnapshot(now: now) else { return }
+
+        snapshotInFlight = true
+        let snapshotStarted = CFAbsoluteTimeGetCurrent()
+        let buffer = await captureManager.captureSnapshot()
+        lastSnapshotDurationMS = (CFAbsoluteTimeGetCurrent() - snapshotStarted) * 1000
+        snapshotInFlight = false
+
+        if let buffer {
+            enqueueFrame(pixelBuffer: buffer, source: .watchdogSnapshot)
+        }
+    }
+
+    private func shouldRunWatchdogSnapshot(now: CFAbsoluteTime) -> Bool {
+        guard !snapshotInFlight else { return false }
+        guard canAcceptNewPipelineWork(now: now) else { return false }
+
+        let state = detectionEngine.stateMachine.state
+        if state != .clear {
+            return true
+        }
+
+        let streamStale = lastStreamFrameTime == 0
+            || (now - lastStreamFrameTime) >= Self.streamWatchdogStaleInterval
+        return streamStale
+    }
+
+    private func canAcceptNewPipelineWork(now: CFAbsoluteTime) -> Bool {
+        guard !pipelineInFlight else { return false }
+        let minOCRInterval = 1.0 / max(config.ocr.fps, 1.0)
+        return (now - lastOCRTime) >= minOCRInterval
+    }
+
     // MARK: - ScreenCaptureDelegate
 
     nonisolated func captureDidOutput(pixelBuffer: CVPixelBuffer, timestamp: CMTime) {
         Task { @MainActor in
-            self.processFrame(pixelBuffer: pixelBuffer)
+            self.enqueueFrame(pixelBuffer: pixelBuffer, source: .stream)
         }
     }
 
@@ -241,38 +295,68 @@ final class AppCoordinator: NSObject, ScreenCaptureDelegate {
         }
     }
 
-    private func processFrame(pixelBuffer: CVPixelBuffer) {
-        let width = CVPixelBufferGetWidth(pixelBuffer)
-        let height = CVPixelBufferGetHeight(pixelBuffer)
-        CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
-        let fingerprint: [UInt8]
-        if let base = CVPixelBufferGetBaseAddress(pixelBuffer) {
-            let bytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer)
-            let data = Data(bytes: base, count: bytesPerRow * height)
-            fingerprint = FrameDiffGate.downsampleFingerprint(from: data, width: width, height: height)
-        } else {
-            fingerprint = []
-        }
-        CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly)
+    private func enqueueFrame(pixelBuffer: CVPixelBuffer, source: FrameSource) {
+        lastFrameReceivedAt = Date()
 
-        previousFingerprint = fingerprint
+        if source == .stream {
+            lastStreamFrameTime = CFAbsoluteTimeGetCurrent()
+            if pendingFrameSource == .watchdogSnapshot {
+                pendingPixelBuffer = nil
+                pendingFrameSource = nil
+            }
+        }
 
         let now = CFAbsoluteTimeGetCurrent()
-        let minOCRInterval = 1.0 / max(config.ocr.fps, 1.0)
 
-        guard !ocrInFlight else { return }
-        guard (now - lastOCRTime) >= minOCRInterval else { return }
+        if pipelineInFlight {
+            if source == .stream || pendingFrameSource != .stream {
+                pendingPixelBuffer = pixelBuffer
+                pendingFrameSource = source
+            }
+            return
+        }
 
-        guard let image = ImageDownscaler.downscale(pixelBuffer: pixelBuffer) else { return }
+        guard canAcceptNewPipelineWork(now: now) else {
+            pendingPixelBuffer = pixelBuffer
+            pendingFrameSource = source
+            return
+        }
 
-        ocrInFlight = true
+        startPipeline(pixelBuffer: pixelBuffer)
+    }
+
+    private func startPipeline(pixelBuffer: CVPixelBuffer) {
+        let preprocessStarted = CFAbsoluteTimeGetCurrent()
+
+        let fingerprint = FrameDiffGate.fingerprint(pixelBuffer: pixelBuffer)
+        let changeRatio = FrameDiffGate.changeRatio(previous: previousFingerprint, current: fingerprint)
+        previousFingerprint = fingerprint
+
+        let state = detectionEngine.stateMachine.state
+        if state == .clear,
+           changeRatio < FrameDiffGate.unchangedThreshold,
+           lastOCRHadNoMatch {
+            lastPreprocessDurationMS = (CFAbsoluteTimeGetCurrent() - preprocessStarted) * 1000
+            drainPendingFrameIfAny()
+            return
+        }
+
+        guard let image = ImageDownscaler.imageForOCR(pixelBuffer: pixelBuffer) else {
+            drainPendingFrameIfAny()
+            return
+        }
+
+        lastPreprocessDurationMS = (CFAbsoluteTimeGetCurrent() - preprocessStarted) * 1000
+
+        pipelineInFlight = true
+        let now = CFAbsoluteTimeGetCurrent()
         lastOCRTime = now
         let ocrStartedAt = CFAbsoluteTimeGetCurrent()
 
         ocrService.recognize(image: image) { [weak self] result in
             Task { @MainActor in
                 guard let self else { return }
-                self.ocrInFlight = false
+                self.pipelineInFlight = false
                 self.lastOCRLatencyMS = (CFAbsoluteTimeGetCurrent() - ocrStartedAt) * 1000
                 self.lastOCRAt = Date()
                 switch result {
@@ -286,15 +370,26 @@ final class AppCoordinator: NSObject, ScreenCaptureDelegate {
                     let compactMerged = self.textBuffer.compactMergedText()
                     self.lastMergedText = merged
                     let analysisText = compactMerged.isEmpty ? merged : "\(merged)\n\(compactMerged)"
-                    if let transition = self.detectionEngine.analyze(text: analysisText) {
+                    let transition = self.detectionEngine.analyze(text: analysisText)
+                    self.lastOCRHadNoMatch = self.detectionEngine.stateMachine.state == .clear
+                    if let transition {
                         self.handleTransition(transition)
                     }
                 case .failure(let error):
                     self.lastOCRText = "OCR error: \(error.localizedDescription)"
+                    self.lastOCRHadNoMatch = false
                     self.notify("OCR error: \(error.localizedDescription)")
                 }
+                self.drainPendingFrameIfAny()
             }
         }
+    }
+
+    private func drainPendingFrameIfAny() {
+        guard let buffer = pendingPixelBuffer, let source = pendingFrameSource else { return }
+        pendingPixelBuffer = nil
+        pendingFrameSource = nil
+        enqueueFrame(pixelBuffer: buffer, source: source)
     }
 
     private func handleTransition(_ transition: StateTransition) {
@@ -302,7 +397,7 @@ final class AppCoordinator: NSObject, ScreenCaptureDelegate {
         switch transition.current {
         case .armed:
             overlay.show()
-            updateOverlayExclusion()
+            Task { await refreshOverlayExclusion() }
             obsClient.onArmed()
             notify("ARMED — \(transition.lastMatch ?? "match")")
         case .clear:

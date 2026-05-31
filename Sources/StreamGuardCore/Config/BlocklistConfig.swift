@@ -108,6 +108,9 @@ public struct StatusPayload: Codable, Sendable, Equatable {
     public let lastOCRLatencyMS: Double?
     public let lastOCRAt: TimeInterval?
     public let overlayVisible: Bool
+    public let lastSnapshotDurationMS: Double?
+    public let lastPreprocessDurationMS: Double?
+    public let lastFrameReceivedAt: TimeInterval?
 
     public init(
         state: GuardState,
@@ -119,7 +122,10 @@ public struct StatusPayload: Codable, Sendable, Equatable {
         mergedText: String = "",
         lastOCRLatencyMS: Double? = nil,
         lastOCRAt: Date? = nil,
-        overlayVisible: Bool = false
+        overlayVisible: Bool = false,
+        lastSnapshotDurationMS: Double? = nil,
+        lastPreprocessDurationMS: Double? = nil,
+        lastFrameReceivedAt: Date? = nil
     ) {
         self.state = state.rawValue
         self.lastMatch = lastMatch
@@ -131,6 +137,9 @@ public struct StatusPayload: Codable, Sendable, Equatable {
         self.lastOCRLatencyMS = lastOCRLatencyMS
         self.lastOCRAt = lastOCRAt?.timeIntervalSince1970
         self.overlayVisible = overlayVisible
+        self.lastSnapshotDurationMS = lastSnapshotDurationMS
+        self.lastPreprocessDurationMS = lastPreprocessDurationMS
+        self.lastFrameReceivedAt = lastFrameReceivedAt?.timeIntervalSince1970
     }
 }
 
