@@ -8,6 +8,10 @@ final class MenuBarController: NSObject {
     private let statusMenuItem = NSMenuItem(title: "Status: Idle", action: nil, keyEquivalent: "")
     private let startItem = NSMenuItem(title: "Start Monitoring", action: #selector(toggleMonitoring), keyEquivalent: "s")
     private let disableItem = NSMenuItem(title: "Disable / Enable (⌘⇧D)", action: #selector(toggleMonitoring), keyEquivalent: "D")
+    private let guardModeItem = NSMenuItem(title: "OCR Guard Mode", action: nil, keyEquivalent: "")
+    private let blurAllModeItem = NSMenuItem(title: "Blur All (Buggy)", action: #selector(selectBlurAllMode), keyEquivalent: "")
+    private let whitelistModeItem = NSMenuItem(title: "Whitelist", action: #selector(selectWhitelistMode), keyEquivalent: "")
+    private let blacklistModeItem = NSMenuItem(title: "Blacklist", action: #selector(selectBlacklistMode), keyEquivalent: "")
     private let openStatusItem = NSMenuItem(title: "Open Status Page", action: #selector(openStatus), keyEquivalent: "o")
     private let openConfigItem = NSMenuItem(title: "Open Config Folder", action: #selector(openConfig), keyEquivalent: "")
     private let quitItem = NSMenuItem(title: "Quit", action: #selector(quit), keyEquivalent: "q")
@@ -41,6 +45,9 @@ final class MenuBarController: NSObject {
         disableItem.keyEquivalentModifierMask = [.command, .shift]
         menu.addItem(disableItem)
 
+        configureGuardModeMenu()
+        menu.addItem(guardModeItem)
+
         openStatusItem.target = self
         menu.addItem(openStatusItem)
 
@@ -56,9 +63,20 @@ final class MenuBarController: NSObject {
         updateMonitoringLabel()
     }
 
+    private func configureGuardModeMenu() {
+        let submenu = NSMenu()
+        for item in [blacklistModeItem, whitelistModeItem, blurAllModeItem] {
+            item.target = self
+            submenu.addItem(item)
+        }
+        guardModeItem.submenu = submenu
+        updateGuardModeLabel()
+    }
+
     private func updateStatus(_ message: String) {
         statusMenuItem.title = "Status: \(message)"
         updateMonitoringLabel()
+        updateGuardModeLabel()
     }
 
     private func updateMonitoringLabel() {
@@ -68,6 +86,14 @@ final class MenuBarController: NSObject {
         if let button = statusItem.button {
             button.title = monitoring ? "🛡●" : "🛡"
         }
+    }
+
+    private func updateGuardModeLabel() {
+        let mode = AppCoordinator.shared.currentStatusPayload().ocrGuardMode
+        guardModeItem.title = "OCR Guard Mode: \(mode)"
+        blurAllModeItem.state = mode == OCRGuardMode.blurAll.rawValue ? .on : .off
+        whitelistModeItem.state = mode == OCRGuardMode.whitelist.rawValue ? .on : .off
+        blacklistModeItem.state = mode == OCRGuardMode.blacklist.rawValue ? .on : .off
     }
 
     private func installHotKeyMonitor() {
@@ -95,6 +121,21 @@ final class MenuBarController: NSObject {
 
     @objc private func openConfig() {
         AppCoordinator.shared.openConfigFolder()
+    }
+
+    @objc private func selectBlurAllMode() {
+        AppCoordinator.shared.setGuardModeFromMenu(.blurAll)
+        updateGuardModeLabel()
+    }
+
+    @objc private func selectWhitelistMode() {
+        AppCoordinator.shared.setGuardModeFromMenu(.whitelist)
+        updateGuardModeLabel()
+    }
+
+    @objc private func selectBlacklistMode() {
+        AppCoordinator.shared.setGuardModeFromMenu(.blacklist)
+        updateGuardModeLabel()
     }
 
     @objc private func quit() {

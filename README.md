@@ -26,7 +26,29 @@ On first launch, defaults are copied to:
 
 `~/Library/Application Support/StreamGuard/blocklist.json`
 
-Edit that file to add phrases, toggle phone/email detection, hysteresis, and OBS settings. Changes reload automatically.
+Edit that file to add phrases, toggle phone/email detection, choose an OCR guard mode, and configure OBS. Changes reload automatically.
+
+`filtering.mode` controls how OCR detections are interpreted:
+
+- `blacklist` is the default. Built-in PII detection, legacy `phrases`, and `filtering.blacklist` entries can arm protection. `filtering.whitelist` entries suppress close false positives.
+- `whitelist` focuses on uncensoring known-safe words, phrases, and emails. It still blocks built-in PII and legacy phrases unless a whitelist entry meets its similarity threshold.
+- `blurAll` is marked buggy in the UI. It intentionally arms on any OCR token and will blur content that does not need blurring.
+
+Whitelist and blacklist entries accept a `minimumSimilarity` score from `0` to `1`, for example:
+
+```json
+{
+  "filtering": {
+    "mode": "blacklist",
+    "whitelist": [
+      { "text": "support@example.com", "fuzzy": true, "minimumSimilarity": 0.92 }
+    ],
+    "blacklist": [
+      { "text": "private stream notes", "fuzzy": true, "minimumSimilarity": 0.86 }
+    ]
+  }
+}
+```
 
 ## Status page
 

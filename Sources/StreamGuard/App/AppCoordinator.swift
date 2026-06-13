@@ -149,6 +149,8 @@ final class AppCoordinator: NSObject, ScreenCaptureDelegate {
             ocrFrames: ocrFrameCount,
             lastOCRText: lastOCRText,
             mergedText: lastMergedText,
+            ocrGuardMode: config.filtering.mode,
+            lastDecision: detectionEngine.lastDecision,
             lastOCRLatencyMS: lastOCRLatencyMS,
             lastOCRAt: lastOCRAt,
             overlayVisible: overlay.visible && detectionEngine.stateMachine.state != .clear,
@@ -205,6 +207,12 @@ final class AppCoordinator: NSObject, ScreenCaptureDelegate {
                         self?.setPipelineMode(.yodoMask)
                     case "mode/yodo-ocr":
                         self?.setPipelineMode(.yodoOCR)
+                    case "guard/blur-all":
+                        self?.setGuardMode(.blurAll)
+                    case "guard/whitelist":
+                        self?.setGuardMode(.whitelist)
+                    case "guard/blacklist":
+                        self?.setGuardMode(.blacklist)
                     default:
                         break
                     }
@@ -223,12 +231,16 @@ final class AppCoordinator: NSObject, ScreenCaptureDelegate {
     }
 
     private func applyConfig(_ newConfig: BlocklistConfig) {
-        let previousMode = config.pipeline.mode
+        let previousConfig = config
         config = newConfig
         detectionEngine.updateConfig(newConfig)
         ocrService.updateConfig(newConfig.ocr)
         obsClient.updateConfig(newConfig.obs)
-        if previousMode != newConfig.pipeline.mode {
+        if previousConfig.pipeline != newConfig.pipeline ||
+            previousConfig.phrases != newConfig.phrases ||
+            previousConfig.patterns != newConfig.patterns ||
+            previousConfig.hysteresis != newConfig.hysteresis ||
+            previousConfig.filtering != newConfig.filtering {
             resetDetectionState()
             overlay.hide()
         }
@@ -242,9 +254,24 @@ final class AppCoordinator: NSObject, ScreenCaptureDelegate {
         notify("Pipeline mode: \(mode.rawValue)")
     }
 
+    func setGuardModeFromMenu(_ mode: OCRGuardMode) {
+        setGuardMode(mode)
+    }
+
+    private func setGuardMode(_ mode: OCRGuardMode) {
+        guard config.filtering.mode != mode else { return }
+        config.filtering.mode = mode
+        detectionEngine.updateConfig(config)
+        resetDetectionState()
+        overlay.hide()
+        let suffix = mode.isBuggy ? " (buggy)" : ""
+        notify("OCR guard mode: \(mode.rawValue)\(suffix)")
+    }
+
     private func resetDetectionState() {
         textBuffer.clear()
         detectionEngine.stateMachine.reset()
+        detectionEngine.resetDecision()
         previousFingerprint = nil
         lastOCRTime = 0
         ocrBurstDeadline = 0
