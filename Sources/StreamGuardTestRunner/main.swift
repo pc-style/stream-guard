@@ -133,6 +133,81 @@ struct StreamGuardTestRunner {
         expect(multiWordEngine.stateMachine.state == .armed, "engine arms on multi-word blocklist phrase")
         expect(multiWordTransition?.current == .armed, "multi-word phrase transition")
 
+        section("OCR guard: whitelist suppression")
+        var allowConfig = BlocklistConfig.default
+        allowConfig.patterns = PatternConfig(phone: false, email: true, ssn: false)
+        allowConfig.phrases = []
+        allowConfig.hysteresis = HysteresisConfig(triggerFrames: 1, clearFrames: 2)
+        allowConfig.filtering = OCRFilteringConfig(
+            mode: .blacklist,
+            whitelist: [OCRListEntry(text: "support@example.com", fuzzy: true, minimumSimilarity: 0.92)],
+            blacklist: []
+        )
+        let allowEngine = DetectionEngine(config: allowConfig)
+        let allowInput = "contact support@example.com for public help"
+        show("input", allowInput)
+        let allowTransition = allowEngine.analyze(text: allowInput)
+        show("decision", allowEngine.lastDecision.reason)
+        show("whitelist score", String(format: "%.2f", allowEngine.lastDecision.whitelistMatch?.score ?? 0))
+        expect(allowEngine.stateMachine.state == .clear, "whitelist suppresses matching email false positive")
+        expect(allowTransition == nil, "whitelist suppression emits no transition")
+        expect(allowEngine.lastDecision.whitelistMatch?.entryText == "support@example.com", "records whitelist entry")
+
+        section("OCR guard: blacklist similarity")
+        var denyConfig = BlocklistConfig.default
+        denyConfig.patterns = PatternConfig(phone: false, email: false, ssn: false)
+        denyConfig.phrases = []
+        denyConfig.hysteresis = HysteresisConfig(triggerFrames: 1, clearFrames: 2)
+        denyConfig.filtering = OCRFilteringConfig(
+            mode: .blacklist,
+            whitelist: [],
+            blacklist: [OCRListEntry(text: "private stream notes", fuzzy: true, minimumSimilarity: 0.86)]
+        )
+        let denyEngine = DetectionEngine(config: denyConfig)
+        let denyInput = "OCR saw private stream n0tes on screen"
+        show("input", denyInput)
+        let denyTransition = denyEngine.analyze(text: denyInput)
+        show("score", String(format: "%.2f", denyEngine.lastDecision.match?.score ?? 0))
+        expect(denyEngine.stateMachine.state == .armed, "blacklist fuzzy threshold blocks OCR-near phrase")
+        expect(denyTransition?.current == .armed, "blacklist fuzzy transition")
+
+        section("OCR guard: similarity threshold")
+        var strictConfig = BlocklistConfig.default
+        strictConfig.patterns = PatternConfig(phone: false, email: false, ssn: false)
+        strictConfig.phrases = []
+        strictConfig.hysteresis = HysteresisConfig(triggerFrames: 1, clearFrames: 2)
+        strictConfig.filtering = OCRFilteringConfig(
+            mode: .blacklist,
+            whitelist: [],
+            blacklist: [OCRListEntry(text: "launch payroll", fuzzy: true, minimumSimilarity: 0.99)]
+        )
+        let strictEngine = DetectionEngine(config: strictConfig)
+        let nearMissInput = "lannch payroll"
+        show("input", nearMissInput)
+        _ = strictEngine.analyze(text: nearMissInput)
+        show("decision", strictEngine.lastDecision.reason)
+        expect(strictEngine.stateMachine.state == .clear, "strict similarity rejects near miss")
+        strictConfig.filtering.blacklist = [OCRListEntry(text: "launch payroll", fuzzy: true, minimumSimilarity: 0.9)]
+        let relaxedEngine = DetectionEngine(config: strictConfig)
+        _ = relaxedEngine.analyze(text: nearMissInput)
+        show("relaxed score", String(format: "%.2f", relaxedEngine.lastDecision.match?.score ?? 0))
+        expect(relaxedEngine.stateMachine.state == .armed, "lower similarity accepts near miss")
+
+        section("OCR guard: blur-all is intentionally buggy")
+        var blurAllConfig = BlocklistConfig.default
+        blurAllConfig.patterns = PatternConfig(phone: false, email: false, ssn: false)
+        blurAllConfig.phrases = []
+        blurAllConfig.hysteresis = HysteresisConfig(triggerFrames: 1, clearFrames: 2)
+        blurAllConfig.filtering = OCRFilteringConfig(mode: .blurAll)
+        let blurAllEngine = DetectionEngine(config: blurAllConfig)
+        let harmlessInput = "safe public heading"
+        show("input", harmlessInput)
+        let blurTransition = blurAllEngine.analyze(text: harmlessInput)
+        show("decision", blurAllEngine.lastDecision.reason)
+        expect(blurAllEngine.stateMachine.state == .armed, "blur-all blocks harmless OCR text")
+        expect(blurTransition?.current == .armed, "blur-all transition")
+        expect(OCRGuardMode.blurAll.warning?.contains("Buggy") == true, "blur-all exposes buggy warning")
+
         section("Text merge buffer")
         let buffer = TextMergeBuffer(windowSeconds: 5)
         buffer.append("555")

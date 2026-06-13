@@ -32,10 +32,14 @@ public enum TextNormalizer {
 public struct MatchResult: Sendable, Equatable {
     public let kind: String
     public let matched: String
+    public let score: Double?
+    public let ruleText: String?
 
-    public init(kind: String, matched: String) {
+    public init(kind: String, matched: String, score: Double? = nil, ruleText: String? = nil) {
         self.kind = kind
         self.matched = matched
+        self.score = score
+        self.ruleText = ruleText
     }
 }
 
@@ -53,19 +57,19 @@ public struct PIIDetector: Sendable {
 
         if patterns.phone {
             if let match = detectPhone(in: normalized) {
-                results.append(MatchResult(kind: "phone", matched: match))
+                results.append(MatchResult(kind: "phone", matched: match, score: 1, ruleText: "phone"))
             } else if let match = detectPhoneWithGaps(in: TextNormalizer.compact(text)) {
-                results.append(MatchResult(kind: "phone", matched: match))
+                results.append(MatchResult(kind: "phone", matched: match, score: 1, ruleText: "phone"))
             }
         }
         if patterns.email {
             if let match = detectEmail(in: lowered) {
-                results.append(MatchResult(kind: "email", matched: match))
+                results.append(MatchResult(kind: "email", matched: match, score: 1, ruleText: "email"))
             }
         }
         if patterns.ssn {
             if let match = detectSSN(in: normalized) {
-                results.append(MatchResult(kind: "ssn", matched: match))
+                results.append(MatchResult(kind: "ssn", matched: match, score: 1, ruleText: "ssn"))
             }
         }
         return results
