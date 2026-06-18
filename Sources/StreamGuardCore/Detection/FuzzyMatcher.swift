@@ -110,7 +110,12 @@ public enum FuzzyMatcher {
             for length in candidateLengths(around: needleLength, maxLength: chars.count) {
                 guard length > 0, chars.count >= length else { continue }
                 for start in 0...(chars.count - length) {
-                    consider(String(chars[start..<(start + length)]))
+                    let compactCandidate = String(chars[start..<(start + length)])
+                    let result = compare(needle: compactNeedle, candidate: compactCandidate)
+                    if best == nil || result.score > best!.score ||
+                        (result.score == best!.score && result.distance < best!.distance) {
+                        best = result
+                    }
                 }
             }
         }

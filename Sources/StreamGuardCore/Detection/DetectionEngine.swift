@@ -268,10 +268,19 @@ public final class DetectionEngine: @unchecked Sendable {
 
     private func whitelistCandidates(for match: MatchResult) -> [String] {
         var values = [match.matched]
-        if let ruleText = match.ruleText, ruleText != match.matched {
+        if let ruleText = match.ruleText,
+           ruleText != match.matched,
+           shouldCompareRuleTextToWhitelist(kind: match.kind) {
             values.append(ruleText)
         }
         return Array(Set(values.filter { !$0.isEmpty }))
+    }
+
+    private func shouldCompareRuleTextToWhitelist(kind: String) -> Bool {
+        kind == "phrase" ||
+            kind == "phrase-fuzzy" ||
+            kind == "blacklist" ||
+            kind == "blacklist-fuzzy"
     }
 
     private func bestMatch(from matches: [MatchResult]) -> MatchResult? {

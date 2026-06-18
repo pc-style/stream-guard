@@ -77,6 +77,12 @@ struct StreamGuardTestRunner {
         show("fuzzy phrase", "example-banned-term")
         show("ocr text", "example-bannned-term")
         expect(FuzzyMatcher.fuzzyMatch(phrase: "example-banned-term", in: "example-bannned-term"), "fuzzy typo match")
+        let compactPhraseResult = FuzzyMatcher.bestMatch(
+            phrase: "private stream notes",
+            in: "OCR merged privatestream n0tes"
+        )
+        show("compact match score", String(format: "%.2f", compactPhraseResult?.score ?? 0))
+        expect((compactPhraseResult?.score ?? 0) >= 0.86, "compact fuzzy compares against compact phrase")
         show("boundary input", "that is bad news")
         expect(FuzzyMatcher.hasWordBoundaryMatch(needle: "bad", in: "that is bad news"), "word boundary match")
         show("substring input", "badge")
@@ -152,6 +158,22 @@ struct StreamGuardTestRunner {
         expect(allowEngine.stateMachine.state == .clear, "whitelist suppresses matching email false positive")
         expect(allowTransition == nil, "whitelist suppression emits no transition")
         expect(allowEngine.lastDecision.whitelistMatch?.entryText == "support@example.com", "records whitelist entry")
+
+        var genericAllowConfig = BlocklistConfig.default
+        genericAllowConfig.patterns = PatternConfig(phone: false, email: true, ssn: false)
+        genericAllowConfig.phrases = []
+        genericAllowConfig.hysteresis = HysteresisConfig(triggerFrames: 1, clearFrames: 2)
+        genericAllowConfig.filtering = OCRFilteringConfig(
+            mode: .blacklist,
+            whitelist: [OCRListEntry(text: "email", fuzzy: false, minimumSimilarity: 1)],
+            blacklist: []
+        )
+        let genericAllowEngine = DetectionEngine(config: genericAllowConfig)
+        let genericAllowInput = "leaked person@example.com"
+        show("generic whitelist input", genericAllowInput)
+        _ = genericAllowEngine.analyze(text: genericAllowInput)
+        show("state", genericAllowEngine.stateMachine.state.rawValue)
+        expect(genericAllowEngine.stateMachine.state == .armed, "generic PII label whitelist does not suppress all emails")
 
         section("OCR guard: blacklist similarity")
         var denyConfig = BlocklistConfig.default
