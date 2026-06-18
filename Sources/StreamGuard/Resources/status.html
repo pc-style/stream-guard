@@ -152,6 +152,16 @@
       padding: 10px;
     }
     .event { padding: 3px 0; color: #c5d2e5; }
+    .warning {
+      display: none;
+      margin-top: 12px;
+      padding: 10px;
+      border: 1px solid rgba(255, 96, 96, 0.45);
+      border-radius: 8px;
+      color: #ffd0d0;
+      background: rgba(255, 96, 96, 0.12);
+      line-height: 1.45;
+    }
     @media (max-width: 860px) {
       body { padding: 14px; }
       header, .layout { display: block; }
@@ -166,7 +176,7 @@
     <header>
       <div>
         <h1>Stream Guard Lab</h1>
-        <p class="subtitle">Compare full-frame OCR, ROI Cascade, and YODO mask behavior.</p>
+        <p class="subtitle">Tune native Vision OCR detection, guard modes, and masking behavior.</p>
       </div>
     </header>
 
@@ -180,10 +190,18 @@
           <div class="metric"><div class="label">OCR frames</div><div class="value" id="ocrFrames">0</div></div>
           <div class="metric"><div class="label">ROI crops</div><div class="value" id="roiImages">0</div></div>
           <div class="metric"><div class="label">Text coverage</div><div class="value" id="textCoverage">0%</div></div>
+          <div class="metric"><div class="label">OCR guard</div><div class="value" id="guardMode">blacklist</div></div>
+          <div class="metric"><div class="label">Detection score</div><div class="value" id="detectionScore">-</div></div>
+          <div class="metric"><div class="label">Whitelist score</div><div class="value" id="whitelistScore">-</div></div>
         </div>
+        <div id="guardWarning" class="warning"></div>
         <div class="rows">
           <div class="row"><span class="label">Monitoring</span><span id="monitoring">-</span></div>
           <div class="row"><span class="label">Last match</span><span id="lastMatch">-</span></div>
+          <div class="row"><span class="label">Decision</span><span id="decisionReason">-</span></div>
+          <div class="row"><span class="label">Matched text</span><span id="matchedText">-</span></div>
+          <div class="row"><span class="label">Rule text</span><span id="ruleText">-</span></div>
+          <div class="row"><span class="label">Whitelisted as</span><span id="whitelistText">-</span></div>
           <div class="row"><span class="label">Updated</span><span id="timestamp">-</span></div>
           <div class="row"><span class="label">Last OCR</span><span id="lastOCRAt">-</span></div>
           <div class="row"><span class="label">Snapshot</span><span id="snapshotLatency">-</span></div>
@@ -215,6 +233,13 @@
           <button id="roiButton" type="button">ROI Cascade</button>
           <button id="yodoOCRButton" type="button">YODO OCR</button>
           <button id="yodoButton" type="button">YODO Mask</button>
+        </div>
+        <h2 style="margin:18px 0 0;font-size:1rem;">OCR guard mode</h2>
+        <p class="mode-copy">Blacklist blocks PII and configured deny-list entries. Whitelist mode prioritizes uncensoring known-safe words, phrases, and emails. Blur All is marked buggy because it intentionally blocks any OCR text.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;">
+          <button id="blacklistButton" type="button">Blacklist</button>
+          <button id="whitelistButton" type="button">Whitelist</button>
+          <button id="blurAllButton" type="button">Blur All (Buggy)</button>
         </div>
       </div>
     </section>
@@ -268,6 +293,10 @@
       return typeof value === "number" ? `${Math.round(value * 100)}%` : "0%";
     }
 
+    function formatScore(value) {
+      return typeof value === "number" ? `${Math.round(value * 100)}%` : "-";
+    }
+
     async function setMode(mode) {
       const route = mode === "roiCascade"
         ? "roi"
@@ -277,6 +306,12 @@
             ? "yodo-ocr"
             : "full";
       await fetch(`/control/mode/${route}`, { method: "POST", cache: "no-store" });
+      await loadStatus();
+    }
+
+    async function setGuardMode(mode) {
+      const route = mode === "blurAll" ? "blur-all" : mode;
+      await fetch(`/control/guard/${route}`, { method: "POST", cache: "no-store" });
       await loadStatus();
     }
 
@@ -296,6 +331,15 @@
       badge.className = "badge state-" + state;
       const mode = data.pipelineMode || "fullFrame";
       $("pipelineMode").textContent = mode;
+      $("guardMode").textContent = data.ocrGuardMode || "blacklist";
+      $("detectionScore").textContent = formatScore(data.lastDetectionScore);
+      $("whitelistScore").textContent = formatScore(data.lastWhitelistScore);
+      $("decisionReason").textContent = data.lastDetectionReason || "-";
+      $("matchedText").textContent = data.lastDetectionMatchedText || "-";
+      $("ruleText").textContent = data.lastDetectionRuleText || "-";
+      $("whitelistText").textContent = data.lastWhitelistText || "-";
+      $("guardWarning").style.display = data.ocrGuardModeWarning ? "block" : "none";
+      $("guardWarning").textContent = data.ocrGuardModeWarning || "";
       $("ocrLatency").textContent = formatMS(data.lastOCRLatencyMS);
       $("preprocessLatency").textContent = formatMS(data.lastPreprocessDurationMS);
       $("ocrFrames").textContent = data.ocrFrames ?? 0;
@@ -322,6 +366,9 @@
       $("frameToArmed").textContent = formatMS(data.lastFrameToArmedMS);
       $("lastOCRText").textContent = data.lastOCRText || "-";
       $("mergedText").textContent = data.mergedText || "-";
+      $("blacklistButton").classList.toggle("active", data.ocrGuardMode === "blacklist");
+      $("whitelistButton").classList.toggle("active", data.ocrGuardMode === "whitelist");
+      $("blurAllButton").classList.toggle("active", data.ocrGuardMode === "blurAll");
       if (mode !== lastMode) {
         lastMode = mode;
         renderMode(mode);
@@ -370,6 +417,9 @@
     $("roiButton").addEventListener("click", () => setMode("roiCascade"));
     $("yodoOCRButton").addEventListener("click", () => setMode("yodoOCR"));
     $("yodoButton").addEventListener("click", () => setMode("yodoMask"));
+    $("blacklistButton").addEventListener("click", () => setGuardMode("blacklist"));
+    $("whitelistButton").addEventListener("click", () => setGuardMode("whitelist"));
+    $("blurAllButton").addEventListener("click", () => setGuardMode("blurAll"));
     renderMode("fullFrame");
     loadStatus();
     setInterval(loadStatus, 500);

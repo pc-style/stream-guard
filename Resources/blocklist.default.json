@@ -20,6 +20,20 @@
     "recognitionLevel": "fast",
     "minimumTextHeight": 0.01
   },
+  "filtering": {
+    "mode": "blacklist",
+    "blurAllMinimumCharacters": 2,
+    "whitelist": [
+      { "text": "support@example.com", "fuzzy": true, "minimumSimilarity": 0.92 },
+      { "text": "public demo", "fuzzy": true, "minimumSimilarity": 0.88 },
+      { "text": "sample customer", "fuzzy": true, "minimumSimilarity": 0.86 }
+    ],
+    "blacklist": [
+      { "text": "private@example.com", "fuzzy": true, "minimumSimilarity": 0.9 },
+      { "text": "private stream notes", "fuzzy": true, "minimumSimilarity": 0.86 },
+      { "text": "launch payroll", "fuzzy": true, "minimumSimilarity": 0.84 }
+    ]
+  },
   "pipeline": {
     "mode": "fullFrame",
     "yodoShowsMasks": true

@@ -90,6 +90,15 @@ final class WebStatusServer: @unchecked Sendable {
             } else if path == "/control/mode/yodo-ocr" {
                 self.controlHandler?("mode/yodo-ocr")
                 self.sendJSON(on: connection, body: "{\"ok\":true,\"action\":\"mode/yodo-ocr\"}")
+            } else if path == "/control/guard/blur-all" {
+                self.controlHandler?("guard/blur-all")
+                self.sendJSON(on: connection, body: "{\"ok\":true,\"action\":\"guard/blur-all\"}")
+            } else if path == "/control/guard/whitelist" {
+                self.controlHandler?("guard/whitelist")
+                self.sendJSON(on: connection, body: "{\"ok\":true,\"action\":\"guard/whitelist\"}")
+            } else if path == "/control/guard/blacklist" {
+                self.controlHandler?("guard/blacklist")
+                self.sendJSON(on: connection, body: "{\"ok\":true,\"action\":\"guard/blacklist\"}")
             } else if path == "/status" {
                 self.sendStatus(on: connection)
             } else if path == "/" || path == "/index" {
