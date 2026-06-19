@@ -3,5 +3,6 @@
 .DS_Store
 .venv-e2e/
 .stream-guard-test-logs/
+.codex-maintenance/
 improvements/
 .cursor/

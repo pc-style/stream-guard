@@ -130,8 +130,29 @@ public struct PIIDetector: Sendable {
         let pattern = #"\b\d{3}[\s-]?\d{2}[\s-]?\d{4}\b"#
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
         let range = NSRange(text.startIndex..<text.endIndex, in: text)
-        guard let match = regex.firstMatch(in: text, range: range),
-              let swiftRange = Range(match.range, in: text) else { return nil }
-        return String(text[swiftRange])
+        for match in regex.matches(in: text, range: range) {
+            guard let swiftRange = Range(match.range, in: text) else { continue }
+            let candidate = String(text[swiftRange])
+            if isValidSSN(candidate) {
+                return candidate
+            }
+        }
+        return nil
+    }
+
+    private func isValidSSN(_ candidate: String) -> Bool {
+        let digits = candidate.filter(\.isNumber)
+        guard digits.count == 9 else { return false }
+
+        let area = Int(digits.prefix(3)) ?? 0
+        let groupStart = digits.index(digits.startIndex, offsetBy: 3)
+        let groupEnd = digits.index(groupStart, offsetBy: 2)
+        let group = Int(digits[groupStart..<groupEnd]) ?? 0
+        let serial = Int(digits.suffix(4)) ?? 0
+
+        guard area != 0, area != 666, area < 900 else { return false }
+        guard group != 0 else { return false }
+        guard serial != 0 else { return false }
+        return true
     }
 }
