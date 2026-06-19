@@ -28,7 +28,10 @@ final class WebStatusServer: @unchecked Sendable {
     func start() throws {
         let parameters = NWParameters.tcp
         parameters.allowLocalEndpointReuse = true
-        // NWListener binds to all interfaces for the selected port, equivalent to 0.0.0.0.
+        parameters.requiredLocalEndpoint = NWEndpoint.hostPort(
+            host: .name(WebPrivacyPolicy.defaultBindHost, nil),
+            port: NWEndpoint.Port(rawValue: port)!
+        )
         listener = try NWListener(using: parameters, on: NWEndpoint.Port(rawValue: port)!)
         listener?.newConnectionHandler = { [weak self] connection in
             self?.handle(connection: connection)

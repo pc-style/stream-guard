@@ -28,6 +28,7 @@ final class AppCoordinator: NSObject, ScreenCaptureDelegate {
     private let obsClient: OBSWebSocketClient
     private let configWatcher = ConfigWatcher()
     private var config: BlocklistConfig
+    private var obsReadiness = OBSReadiness()
 
     private var isMonitoring = false
     private var captureTimer: Timer?
@@ -95,9 +96,31 @@ final class AppCoordinator: NSObject, ScreenCaptureDelegate {
     }
 
     var monitoring: Bool { isMonitoring }
+    var currentConfig: BlocklistConfig { config }
+    var currentOBSReadiness: OBSReadiness { obsReadiness }
+    var currentSetupReadiness: SetupReadiness {
+        SetupReadiness(
+            screenRecordingGranted: captureManager.hasPermission(),
+            obs: obsReadiness,
+            detectorSettingsComplete: detectorsComplete(config),
+            protectionMode: config.userSettings.protectionMode
+        )
+    }
 
     func startMonitoring() {
         guard !isMonitoring else { return }
+
+        let readiness = currentSetupReadiness
+        guard readiness.canStartProtection else {
+            if !readiness.screenRecordingGranted {
+                notify("Screen Recording permission required")
+            } else if readiness.protectionMode.usesOBS && !readiness.obs.isReady {
+                notify("OBS protection refused: \(readiness.obs.message)")
+            } else {
+                notify("Detector settings incomplete")
+            }
+            return
+        }
 
         if !captureManager.hasPermission() {
             permissionGrantedAfterRequest = captureManager.requestPermission()
@@ -173,17 +196,55 @@ final class AppCoordinator: NSObject, ScreenCaptureDelegate {
             lastROIImageCount: lastROIImageCount,
             lastROISkippedOCR: lastROISkippedOCR,
             lastYODORegionCount: lastYODORegionCount,
-            lastYODOMaskCoverage: lastYODOMaskCoverage
+            lastYODOMaskCoverage: lastYODOMaskCoverage,
+            protectionMode: config.userSettings.protectionMode,
+            sensitivity: config.userSettings.sensitivity,
+            obsReadiness: obsReadiness
         )
     }
 
     func openStatusPage() {
-        NSWorkspace.shared.open(URL(string: "http://0.0.0.0:8765/")!)
+        NSWorkspace.shared.open(URL(string: "http://127.0.0.1:8765/")!)
     }
 
     func openConfigFolder() {
         NSWorkspace.shared.open(ConfigLoader.userConfigURL().deletingLastPathComponent())
     }
+
+    func obsLuaScriptURL() -> URL? {
+        Bundle.module.url(forResource: "stream_guard_protector", withExtension: "lua")
+            ?? Bundle.main.url(forResource: "stream_guard_protector", withExtension: "lua")
+            ?? URL(fileURLWithPath: "obs/stream_guard_protector.lua")
+    }
+
+    func testOBSReadiness(completion: @escaping (OBSReadiness) -> Void) {
+        obsClient.testConnectionAndBlackout { [weak self] readiness in
+            Task { @MainActor in
+                self?.obsReadiness = readiness
+                self?.notify(readiness.message)
+                completion(readiness)
+            }
+        }
+    }
+
+    func saveOBSPassword(_ password: String) throws {
+        try KeychainStore.shared.setOBSPassword(password)
+        notify("OBS password saved to Keychain")
+    }
+
+    func updateUserSettings(_ settings: UserSettingsConfig) {
+        config.userSettings = settings
+        config.applyUserSettingsCompatibility()
+        persistAndApplyConfig(config)
+        notify("Settings saved")
+    }
+
+    func setLaunchAtLogin(_ enabled: Bool) throws {
+        try LaunchAgentManager.setEnabled(enabled)
+        notify(enabled ? "Launch at Login enabled" : "Launch at Login disabled")
+    }
+
+    func launchAtLoginEnabled() -> Bool { LaunchAgentManager.isEnabled() }
 
     private func setupWebServer() {
         let html = Self.loadStatusHTML()
@@ -232,6 +293,8 @@ final class AppCoordinator: NSObject, ScreenCaptureDelegate {
 
     private func applyConfig(_ newConfig: BlocklistConfig) {
         let previousConfig = config
+        var newConfig = newConfig
+        newConfig.applyUserSettingsCompatibility()
         config = newConfig
         detectionEngine.updateConfig(newConfig)
         ocrService.updateConfig(newConfig.ocr)
@@ -256,6 +319,19 @@ final class AppCoordinator: NSObject, ScreenCaptureDelegate {
 
     func setGuardModeFromMenu(_ mode: OCRGuardMode) {
         setGuardMode(mode)
+    }
+
+    private func persistAndApplyConfig(_ newConfig: BlocklistConfig) {
+        do {
+            try ConfigLoader.save(newConfig)
+            applyConfig(newConfig)
+        } catch {
+            notify("Could not save settings: \(error.localizedDescription)")
+        }
+    }
+
+    private func detectorsComplete(_ config: BlocklistConfig) -> Bool {
+        config.patterns.email || config.patterns.phone || config.patterns.secrets || !config.filtering.blacklist.isEmpty || !config.phrases.isEmpty
     }
 
     private func setGuardMode(_ mode: OCRGuardMode) {
@@ -533,7 +609,7 @@ final class AppCoordinator: NSObject, ScreenCaptureDelegate {
 
         if images.isEmpty {
             markPreprocessDone(startedAt: preprocessStarted)
-            finishRecognizedStrings([])
+            finishRecognizedObservations([])
             drainPendingFrameIfAny()
             return
         }
@@ -579,7 +655,7 @@ final class AppCoordinator: NSObject, ScreenCaptureDelegate {
 
         if images.isEmpty {
             markPreprocessDone(startedAt: preprocessStarted)
-            finishRecognizedStrings([])
+            finishRecognizedObservations([])
             drainPendingFrameIfAny()
             return
         }
@@ -598,9 +674,9 @@ final class AppCoordinator: NSObject, ScreenCaptureDelegate {
         let ocrStartedAt = CFAbsoluteTimeGetCurrent()
 
         if images.count > 1 {
-            ocrService.recognizeSequential(images: images, shouldStop: { [weak self] cropStrings in
+            ocrService.recognizeSequential(images: images, shouldStop: { [weak self] cropObservations in
                 guard let self else { return false }
-                return self.processCropFastPath(cropStrings)
+                return self.processCropFastPath(cropObservations)
             }, completion: { [weak self] result in
                 Task { @MainActor in
                     self?.completeOCRPass(result: result, startedAt: ocrStartedAt)
@@ -616,7 +692,7 @@ final class AppCoordinator: NSObject, ScreenCaptureDelegate {
         }
     }
 
-    private func completeOCRPass(result: Result<[String], Error>, startedAt: CFAbsoluteTime) {
+    private func completeOCRPass(result: Result<[OCRObservation], Error>, startedAt: CFAbsoluteTime) {
         pipelineInFlight = false
         let ocrDoneAt = Date()
         lastOCRLatencyMS = (CFAbsoluteTimeGetCurrent() - startedAt) * 1000
@@ -626,9 +702,9 @@ final class AppCoordinator: NSObject, ScreenCaptureDelegate {
             lastPreprocessToOCRDoneMS = ocrDoneAt.timeIntervalSince(preprocessDoneAt) * 1000
         }
         switch result {
-        case .success(let strings):
+        case .success(let observations):
             ocrFrameCount += 1
-            finishRecognizedStrings(strings)
+            finishRecognizedObservations(observations)
         case .failure(let error):
             lastOCRText = "OCR error: \(error.localizedDescription)"
             lastOCRHadNoMatch = false
@@ -641,10 +717,11 @@ final class AppCoordinator: NSObject, ScreenCaptureDelegate {
 
     /// Appends crop OCR, checks compact variants + merge buffer; arms without waiting for other crops.
     @discardableResult
-    private func processCropFastPath(_ cropStrings: [String]) -> Bool {
+    private func processCropFastPath(_ cropObservations: [OCRObservation]) -> Bool {
+        let cropStrings = cropObservations.map(\.text)
         guard !cropStrings.isEmpty else { return false }
-        for string in cropStrings {
-            textBuffer.append(string)
+        for observation in cropObservations {
+            textBuffer.append(observation.text)
         }
         ocrSequentialCropAppend = true
         lastOCRText = cropStrings.joined(separator: " | ")
@@ -656,10 +733,11 @@ final class AppCoordinator: NSObject, ScreenCaptureDelegate {
         return detectionEngine.stateMachine.state != .clear
     }
 
-    private func finishRecognizedStrings(_ strings: [String]) {
+    private func finishRecognizedObservations(_ observations: [OCRObservation]) {
+        let strings = observations.map(\.text)
         if !ocrSequentialCropAppend {
-            for string in strings {
-                textBuffer.append(string)
+            for observation in observations {
+                textBuffer.append(observation.text)
             }
         }
         lastOCRText = strings.joined(separator: " | ")
@@ -755,13 +833,19 @@ final class AppCoordinator: NSObject, ScreenCaptureDelegate {
         webServer?.broadcast(transition: transition, status: currentStatusPayload())
         switch transition.current {
         case .armed:
-            overlay.show()
-            Task { await refreshOverlayExclusion() }
-            obsClient.onArmed()
+            if config.userSettings.protectionMode.usesLocalOverlay {
+                overlay.show()
+                Task { await refreshOverlayExclusion() }
+            }
+            if config.userSettings.protectionMode.usesOBS {
+                obsClient.onArmed()
+            }
             notify("ARMED — \(transition.lastMatch ?? "match")")
         case .clear:
             overlay.hide()
-            obsClient.onClear()
+            if config.userSettings.protectionMode.usesOBS {
+                obsClient.onClear()
+            }
             notify("CLEAR")
         case .suspect:
             notify("SUSPECT — \(transition.lastMatch ?? "match")")

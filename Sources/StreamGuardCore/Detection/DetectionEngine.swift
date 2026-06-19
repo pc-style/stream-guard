@@ -135,7 +135,7 @@ public final class DetectionEngine: @unchecked Sendable {
             shouldTrigger: true,
             match: match,
             whitelistMatch: nil,
-            reason: "Buggy blur-all mode blocks any detected OCR text"
+            reason: "Advanced blur-all mode blocks any detected OCR text"
         )
     }
 

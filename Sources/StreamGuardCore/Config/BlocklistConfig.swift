@@ -1,9 +1,131 @@
 import Foundation
+import CoreGraphics
 
 public enum GuardState: String, Codable, Sendable, Equatable {
     case clear = "clear"
     case suspect = "suspect"
     case armed = "armed"
+}
+
+public enum ProtectionMode: String, Codable, Sendable, Equatable, CaseIterable {
+    case localOverlay = "localOverlay"
+    case obs = "obs"
+    case both = "both"
+
+    public var usesLocalOverlay: Bool { self == .localOverlay || self == .both }
+    public var usesOBS: Bool { self == .obs || self == .both }
+}
+
+public enum SensitivityProfile: String, Codable, Sendable, Equatable, CaseIterable {
+    case safe = "safe"
+    case balanced = "balanced"
+}
+
+public struct UserSettingsConfig: Codable, Sendable, Equatable {
+    public var protectionMode: ProtectionMode
+    public var sensitivity: SensitivityProfile
+    public var sensitiveText: [String]
+    public var safeText: [String]
+    public var enableSecrets: Bool
+    public var enableCards: Bool
+    public var enableNationalIDs: Bool
+
+    public init(
+        protectionMode: ProtectionMode = .both,
+        sensitivity: SensitivityProfile = .safe,
+        sensitiveText: [String] = [],
+        safeText: [String] = [],
+        enableSecrets: Bool = true,
+        enableCards: Bool = false,
+        enableNationalIDs: Bool = false
+    ) {
+        self.protectionMode = protectionMode
+        self.sensitivity = sensitivity
+        self.sensitiveText = sensitiveText
+        self.safeText = safeText
+        self.enableSecrets = enableSecrets
+        self.enableCards = enableCards
+        self.enableNationalIDs = enableNationalIDs
+    }
+}
+
+public enum OBSReadinessState: String, Codable, Sendable, Equatable {
+    case disconnected = "disconnected"
+    case passwordRequired = "passwordRequired"
+    case authenticated = "authenticated"
+    case protectedSceneMissing = "protectedSceneMissing"
+    case blackoutSourceMissing = "blackoutSourceMissing"
+    case testBlackoutFailed = "testBlackoutFailed"
+    case ready = "ready"
+}
+
+public struct OBSReadiness: Codable, Sendable, Equatable {
+    public var state: OBSReadinessState
+    public var message: String
+    public var testedAt: Date?
+
+    public var isReady: Bool { state == .ready }
+
+    public init(state: OBSReadinessState = .disconnected, message: String = "OBS is not connected", testedAt: Date? = nil) {
+        self.state = state
+        self.message = message
+        self.testedAt = testedAt
+    }
+}
+
+public struct SetupReadiness: Codable, Sendable, Equatable {
+    public var screenRecordingGranted: Bool
+    public var obs: OBSReadiness
+    public var detectorSettingsComplete: Bool
+    public var protectionMode: ProtectionMode
+
+    public var canStartProtection: Bool {
+        screenRecordingGranted && detectorSettingsComplete && (!protectionMode.usesOBS || obs.isReady)
+    }
+
+    public init(
+        screenRecordingGranted: Bool,
+        obs: OBSReadiness,
+        detectorSettingsComplete: Bool = true,
+        protectionMode: ProtectionMode = .both
+    ) {
+        self.screenRecordingGranted = screenRecordingGranted
+        self.obs = obs
+        self.detectorSettingsComplete = detectorSettingsComplete
+        self.protectionMode = protectionMode
+    }
+}
+
+public struct OCRObservation: Codable, Sendable, Equatable {
+    public var text: String
+    public var confidence: Float
+    public var boundingBox: NormalizedRect
+
+    public init(text: String, confidence: Float, boundingBox: NormalizedRect) {
+        self.text = text
+        self.confidence = confidence
+        self.boundingBox = boundingBox
+    }
+}
+
+public struct NormalizedRect: Codable, Sendable, Equatable {
+    public var x: Double
+    public var y: Double
+    public var width: Double
+    public var height: Double
+
+    public init(x: Double, y: Double, width: Double, height: Double) {
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+    }
+
+    public init(_ rect: CGRect) {
+        self.init(x: rect.origin.x, y: rect.origin.y, width: rect.size.width, height: rect.size.height)
+    }
+
+    public var cgRect: CGRect { CGRect(x: x, y: y, width: width, height: height) }
 }
 
 public struct PhraseEntry: Codable, Sendable, Equatable {
@@ -21,14 +143,12 @@ public enum OCRGuardMode: String, Codable, Sendable, Equatable, CaseIterable {
     case whitelist = "whitelist"
     case blacklist = "blacklist"
 
-    public var isBuggy: Bool {
-        self == .blurAll
-    }
+    public var isBuggy: Bool { self == .blurAll }
 
     public var warning: String? {
         switch self {
         case .blurAll:
-            return "Buggy: blur-all mode intentionally overblocks any OCR text and can blur harmless content."
+            return "Advanced diagnostics only: overblocks any OCR text and can hide harmless content."
         case .whitelist, .blacklist:
             return nil
         }
@@ -46,11 +166,7 @@ public struct OCRListEntry: Codable, Sendable, Equatable {
         self.minimumSimilarity = Self.clampedSimilarity(minimumSimilarity)
     }
 
-    private enum CodingKeys: String, CodingKey {
-        case text
-        case fuzzy
-        case minimumSimilarity
-    }
+    private enum CodingKeys: String, CodingKey { case text, fuzzy, minimumSimilarity }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -79,24 +195,14 @@ public struct OCRFilteringConfig: Codable, Sendable, Equatable {
     public var blacklist: [OCRListEntry]
     public var blurAllMinimumCharacters: Int
 
-    public init(
-        mode: OCRGuardMode = .blacklist,
-        whitelist: [OCRListEntry] = [],
-        blacklist: [OCRListEntry] = [],
-        blurAllMinimumCharacters: Int = 2
-    ) {
+    public init(mode: OCRGuardMode = .blacklist, whitelist: [OCRListEntry] = [], blacklist: [OCRListEntry] = [], blurAllMinimumCharacters: Int = 2) {
         self.mode = mode
         self.whitelist = whitelist
         self.blacklist = blacklist
         self.blurAllMinimumCharacters = max(1, blurAllMinimumCharacters)
     }
 
-    private enum CodingKeys: String, CodingKey {
-        case mode
-        case whitelist
-        case blacklist
-        case blurAllMinimumCharacters
-    }
+    private enum CodingKeys: String, CodingKey { case mode, whitelist, blacklist, blurAllMinimumCharacters }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -112,11 +218,29 @@ public struct PatternConfig: Codable, Sendable, Equatable {
     public var phone: Bool
     public var email: Bool
     public var ssn: Bool
+    public var secrets: Bool
+    public var cards: Bool
+    public var nationalIDs: Bool
 
-    public init(phone: Bool = true, email: Bool = true, ssn: Bool = false) {
+    public init(phone: Bool = true, email: Bool = true, ssn: Bool = false, secrets: Bool = true, cards: Bool = false, nationalIDs: Bool = false) {
         self.phone = phone
         self.email = email
         self.ssn = ssn
+        self.secrets = secrets
+        self.cards = cards
+        self.nationalIDs = nationalIDs
+    }
+
+    private enum CodingKeys: String, CodingKey { case phone, email, ssn, secrets, cards, nationalIDs }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.phone = try container.decodeIfPresent(Bool.self, forKey: .phone) ?? true
+        self.email = try container.decodeIfPresent(Bool.self, forKey: .email) ?? true
+        self.ssn = try container.decodeIfPresent(Bool.self, forKey: .ssn) ?? false
+        self.secrets = try container.decodeIfPresent(Bool.self, forKey: .secrets) ?? true
+        self.cards = try container.decodeIfPresent(Bool.self, forKey: .cards) ?? false
+        self.nationalIDs = try container.decodeIfPresent(Bool.self, forKey: .nationalIDs) ?? false
     }
 }
 
@@ -125,8 +249,8 @@ public struct HysteresisConfig: Codable, Sendable, Equatable {
     public var clearFrames: Int
 
     public init(triggerFrames: Int = 1, clearFrames: Int = 3) {
-        self.triggerFrames = triggerFrames
-        self.clearFrames = clearFrames
+        self.triggerFrames = max(1, triggerFrames)
+        self.clearFrames = max(1, clearFrames)
     }
 }
 
@@ -153,7 +277,7 @@ public struct PipelineConfig: Codable, Sendable, Equatable {
     public var mode: PipelineMode
     public var yodoShowsMasks: Bool
 
-    public init(mode: PipelineMode = .fullFrame, yodoShowsMasks: Bool = true) {
+    public init(mode: PipelineMode = .roiCascade, yodoShowsMasks: Bool = true) {
         self.mode = mode
         self.yodoShowsMasks = yodoShowsMasks
     }
@@ -168,15 +292,7 @@ public struct OBSConfig: Codable, Sendable, Equatable {
     public var protectedScene: String
     public var blackoutSource: String
 
-    public init(
-        enabled: Bool = false,
-        host: String = "127.0.0.1",
-        port: Int = 4455,
-        controlMode: String = "scene",
-        blackoutScene: String = "BLACKOUT",
-        protectedScene: String = "STREAM_GUARD_PROTECTED",
-        blackoutSource: String = "STREAM_GUARD_BLACKOUT"
-    ) {
+    public init(enabled: Bool = true, host: String = "127.0.0.1", port: Int = 4455, controlMode: String = "source", blackoutScene: String = "BLACKOUT", protectedScene: String = "STREAM_GUARD_PROTECTED", blackoutSource: String = "STREAM_GUARD_BLACKOUT") {
         self.enabled = enabled
         self.host = host
         self.port = port
@@ -195,6 +311,7 @@ public struct BlocklistConfig: Codable, Sendable, Equatable {
     public var filtering: OCRFilteringConfig
     public var pipeline: PipelineConfig
     public var obs: OBSConfig
+    public var userSettings: UserSettingsConfig
 
     public init(
         phrases: [PhraseEntry] = [],
@@ -203,7 +320,8 @@ public struct BlocklistConfig: Codable, Sendable, Equatable {
         ocr: OCRConfig = OCRConfig(),
         filtering: OCRFilteringConfig = OCRFilteringConfig(),
         pipeline: PipelineConfig = PipelineConfig(),
-        obs: OBSConfig = OBSConfig()
+        obs: OBSConfig = OBSConfig(),
+        userSettings: UserSettingsConfig = UserSettingsConfig()
     ) {
         self.phrases = phrases
         self.patterns = patterns
@@ -212,17 +330,11 @@ public struct BlocklistConfig: Codable, Sendable, Equatable {
         self.filtering = filtering
         self.pipeline = pipeline
         self.obs = obs
+        self.userSettings = userSettings
+        applyUserSettingsCompatibility()
     }
 
-    private enum CodingKeys: String, CodingKey {
-        case phrases
-        case patterns
-        case hysteresis
-        case ocr
-        case filtering
-        case pipeline
-        case obs
-    }
+    private enum CodingKeys: String, CodingKey { case phrases, patterns, hysteresis, ocr, filtering, pipeline, obs, userSettings }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -233,6 +345,27 @@ public struct BlocklistConfig: Codable, Sendable, Equatable {
         self.filtering = try container.decodeIfPresent(OCRFilteringConfig.self, forKey: .filtering) ?? OCRFilteringConfig()
         self.pipeline = try container.decodeIfPresent(PipelineConfig.self, forKey: .pipeline) ?? PipelineConfig()
         self.obs = try container.decodeIfPresent(OBSConfig.self, forKey: .obs) ?? OBSConfig()
+        self.userSettings = try container.decodeIfPresent(UserSettingsConfig.self, forKey: .userSettings) ?? UserSettingsConfig()
+        applyUserSettingsCompatibility()
+    }
+
+    public mutating func applyUserSettingsCompatibility() {
+        patterns.secrets = userSettings.enableSecrets
+        patterns.cards = userSettings.enableCards
+        patterns.nationalIDs = userSettings.enableNationalIDs
+        filtering.mode = .blacklist
+        merge(entries: userSettings.safeText, into: &filtering.whitelist, defaultSimilarity: 0.92)
+        merge(entries: userSettings.sensitiveText, into: &filtering.blacklist, defaultSimilarity: userSettings.sensitivity == .safe ? 0.84 : 0.90)
+        hysteresis.triggerFrames = userSettings.sensitivity == .safe ? 1 : max(hysteresis.triggerFrames, 2)
+    }
+
+    private func merge(entries: [String], into list: inout [OCRListEntry], defaultSimilarity: Double) {
+        let existing = Set(list.map { TextNormalizer.normalize($0.text) })
+        for text in entries {
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, !existing.contains(TextNormalizer.normalize(trimmed)) else { continue }
+            list.append(OCRListEntry(text: trimmed, fuzzy: true, minimumSimilarity: defaultSimilarity))
+        }
     }
 
     public static let `default` = BlocklistConfig(
@@ -240,8 +373,8 @@ public struct BlocklistConfig: Codable, Sendable, Equatable {
             PhraseEntry(text: "example-banned-term", fuzzy: true),
             PhraseEntry(text: "exact-ban", fuzzy: false),
         ],
-        patterns: PatternConfig(),
-        hysteresis: HysteresisConfig(),
+        patterns: PatternConfig(phone: true, email: true, ssn: false, secrets: true, cards: false, nationalIDs: false),
+        hysteresis: HysteresisConfig(triggerFrames: 1, clearFrames: 3),
         ocr: OCRConfig(),
         filtering: OCRFilteringConfig(
             mode: .blacklist,
@@ -254,8 +387,9 @@ public struct BlocklistConfig: Codable, Sendable, Equatable {
                 OCRListEntry(text: "private stream notes", fuzzy: true, minimumSimilarity: 0.86),
             ]
         ),
-        pipeline: PipelineConfig(),
-        obs: OBSConfig()
+        pipeline: PipelineConfig(mode: .roiCascade),
+        obs: OBSConfig(enabled: true, controlMode: "source"),
+        userSettings: UserSettingsConfig()
     )
 }
 
@@ -298,6 +432,9 @@ public struct StatusPayload: Codable, Sendable, Equatable {
     public let lastROISkippedOCR: Bool
     public let lastYODORegionCount: Int
     public let lastYODOMaskCoverage: Double
+    public let protectionMode: String
+    public let sensitivity: String
+    public let obsReadiness: OBSReadiness?
 
     public init(
         state: GuardState,
@@ -325,13 +462,16 @@ public struct StatusPayload: Codable, Sendable, Equatable {
         lastPreprocessToOCRDoneMS: Double? = nil,
         lastOCRDoneToArmedMS: Double? = nil,
         lastFrameToArmedMS: Double? = nil,
-        pipelineMode: PipelineMode = .fullFrame,
+        pipelineMode: PipelineMode = .roiCascade,
         lastTextRegionCount: Int = 0,
         lastTextRegionCoverage: Double = 0,
         lastROIImageCount: Int = 0,
         lastROISkippedOCR: Bool = false,
         lastYODORegionCount: Int = 0,
-        lastYODOMaskCoverage: Double = 0
+        lastYODOMaskCoverage: Double = 0,
+        protectionMode: ProtectionMode = .both,
+        sensitivity: SensitivityProfile = .safe,
+        obsReadiness: OBSReadiness? = nil
     ) {
         self.state = state.rawValue
         self.lastMatch = lastMatch
@@ -371,6 +511,9 @@ public struct StatusPayload: Codable, Sendable, Equatable {
         self.lastROISkippedOCR = lastROISkippedOCR
         self.lastYODORegionCount = lastYODORegionCount
         self.lastYODOMaskCoverage = lastYODOMaskCoverage
+        self.protectionMode = protectionMode.rawValue
+        self.sensitivity = sensitivity.rawValue
+        self.obsReadiness = obsReadiness
     }
 }
 

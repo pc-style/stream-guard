@@ -34,17 +34,20 @@ public enum ConfigLoader {
         return .default
     }
 
+    public static func save(_ config: BlocklistConfig, to url: URL = userConfigURL()) throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(config)
+        try data.write(to: url, options: .atomic)
+    }
+
     public static func seedUserConfigIfNeeded() {
         let userURL = userConfigURL()
         guard !FileManager.default.fileExists(atPath: userURL.path) else { return }
         if let defaultData = try? Data(contentsOf: defaultConfigURL()) {
             try? defaultData.write(to: userURL)
         } else {
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            if let data = try? encoder.encode(BlocklistConfig.default) {
-                try? data.write(to: userURL)
-            }
+            try? save(BlocklistConfig.default, to: userURL)
         }
     }
 }

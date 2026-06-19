@@ -1,4 +1,4 @@
-.PHONY: build run test live-test live-test-deps benchmark-pipelines clean
+.PHONY: build run test app install uninstall live-test live-test-deps benchmark-pipelines clean
 
 INFO_PLIST := Resources/Info.plist
 BUILD_FLAGS := -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __info_plist -Xlinker $(INFO_PLIST)
@@ -11,6 +11,15 @@ run: build
 
 test:
 	swift run $(BUILD_FLAGS) StreamGuardTestRunner
+
+app:
+	./scripts/package-app.sh
+
+install: app
+	./scripts/install-app.sh
+
+uninstall:
+	./scripts/uninstall-app.sh
 
 VENV_E2E := .venv-e2e
 E2E_PYTHON := $(VENV_E2E)/bin/python

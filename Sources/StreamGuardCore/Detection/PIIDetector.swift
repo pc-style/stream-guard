@@ -67,12 +67,79 @@ public struct PIIDetector: Sendable {
                 results.append(MatchResult(kind: "email", matched: match, score: 1, ruleText: "email"))
             }
         }
-        if patterns.ssn {
+        if patterns.ssn || patterns.nationalIDs {
             if let match = detectSSN(in: normalized) {
                 results.append(MatchResult(kind: "ssn", matched: match, score: 1, ruleText: "ssn"))
             }
         }
+        if patterns.secrets {
+            results.append(contentsOf: detectSecrets(in: text))
+        }
+        if patterns.cards, let match = detectCard(in: normalized) {
+            results.append(MatchResult(kind: "card", matched: match, score: 1, ruleText: "payment card"))
+        }
+        return deduplicated(results)
+    }
+
+    private func detectSecrets(in text: String) -> [MatchResult] {
+        let patterns: [(String, String, String)] = [
+            ("github-token", #"\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9_]{20,}\b"#, "GitHub token"),
+            ("github-fine-grained-token", #"\bgithub_pat_[A-Za-z0-9_]{30,}\b"#, "GitHub fine-grained token"),
+            ("openai-token", #"\bsk-[A-Za-z0-9_-]{20,}\b"#, "OpenAI/API key token"),
+            ("aws-access-key", #"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"#, "AWS access key id"),
+            ("slack-token", #"\bxox[baprs]-[A-Za-z0-9-]{10,}\b"#, "Slack token"),
+            ("jwt", #"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b"#, "JWT"),
+            ("private-key", #"-----BEGIN [A-Z ]*PRIVATE KEY-----"#, "private key header"),
+            ("api-key-like", #"(?i)\b(?:api[_-]?key|secret|token)\s*[:=]\s*[A-Za-z0-9_./+\-=]{16,}\b"#, "API key-like secret"),
+        ]
+        var results: [MatchResult] = []
+        for (kind, pattern, label) in patterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
+            let range = NSRange(text.startIndex..<text.endIndex, in: text)
+            if let match = regex.firstMatch(in: text, range: range),
+               let swiftRange = Range(match.range, in: text) {
+                results.append(MatchResult(kind: kind, matched: String(text[swiftRange]), score: 1, ruleText: label))
+            }
+        }
         return results
+    }
+
+    private func detectCard(in text: String) -> String? {
+        let pattern = #"\b(?:\d[ -]*?){13,19}\b"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        for match in regex.matches(in: text, range: range) {
+            guard let swiftRange = Range(match.range, in: text) else { continue }
+            let candidate = String(text[swiftRange])
+            let digits = candidate.filter(\.isNumber)
+            guard digits.count >= 13, digits.count <= 19, luhn(digits) else { continue }
+            return candidate
+        }
+        return nil
+    }
+
+    private func luhn(_ digits: String) -> Bool {
+        var sum = 0
+        let reversed = digits.reversed().map { Int(String($0)) ?? 0 }
+        for (index, digit) in reversed.enumerated() {
+            if index % 2 == 1 {
+                let doubled = digit * 2
+                sum += doubled > 9 ? doubled - 9 : doubled
+            } else {
+                sum += digit
+            }
+        }
+        return sum > 0 && sum % 10 == 0
+    }
+
+    private func deduplicated(_ matches: [MatchResult]) -> [MatchResult] {
+        var seen = Set<String>()
+        var output: [MatchResult] = []
+        for match in matches {
+            let key = "\(match.kind):\(match.matched)"
+            if seen.insert(key).inserted { output.append(match) }
+        }
+        return output
     }
 
     private func detectPhone(in text: String) -> String? {

@@ -17,15 +17,15 @@ final class VisionOCRService: @unchecked Sendable {
         }
     }
 
-    func recognize(image: CGImage, completion: @escaping (Result<[String], Error>) -> Void) {
+    func recognize(image: CGImage, completion: @escaping (Result<[OCRObservation], Error>) -> Void) {
         recognize(images: [image], completion: completion)
     }
 
-    func recognize(images: [CGImage], completion: @escaping (Result<[String], Error>) -> Void) {
+    func recognize(images: [CGImage], completion: @escaping (Result<[OCRObservation], Error>) -> Void) {
         queue.async {
             do {
-                let allStrings = try self.recognizeAll(images: images)
-                completion(.success(allStrings))
+                let observations = try self.recognizeAll(images: images)
+                completion(.success(observations))
             } catch {
                 completion(.failure(error))
             }
@@ -35,44 +35,44 @@ final class VisionOCRService: @unchecked Sendable {
     /// Runs OCR crop-by-crop; `shouldStop` is invoked on the main queue after each crop.
     func recognizeSequential(
         images: [CGImage],
-        shouldStop: @escaping ([String]) -> Bool,
-        completion: @escaping (Result<[String], Error>) -> Void
+        shouldStop: @escaping ([OCRObservation]) -> Bool,
+        completion: @escaping (Result<[OCRObservation], Error>) -> Void
     ) {
         queue.async {
-            var allStrings: [String] = []
+            var allObservations: [OCRObservation] = []
             do {
                 for image in images {
-                    let cropStrings = try self.recognizeOne(image: image)
-                    allStrings.append(contentsOf: cropStrings)
+                    let cropObservations = try self.recognizeOne(image: image)
+                    allObservations.append(contentsOf: cropObservations)
                     let stop = DispatchQueue.main.sync {
-                        shouldStop(cropStrings)
+                        shouldStop(cropObservations)
                     }
                     if stop {
                         break
                     }
                 }
-                completion(.success(allStrings))
+                completion(.success(allObservations))
             } catch {
                 completion(.failure(error))
             }
         }
     }
 
-    private func recognizeAll(images: [CGImage]) throws -> [String] {
-        var allStrings: [String] = []
+    private func recognizeAll(images: [CGImage]) throws -> [OCRObservation] {
+        var allObservations: [OCRObservation] = []
         for image in images {
-            allStrings.append(contentsOf: try recognizeOne(image: image))
+            allObservations.append(contentsOf: try recognizeOne(image: image))
         }
-        return allStrings
+        return allObservations
     }
 
-    private func recognizeOne(image: CGImage) throws -> [String] {
+    private func recognizeOne(image: CGImage) throws -> [OCRObservation] {
         var requestError: Error?
-        var strings: [String] = []
+        var observations: [OCRObservation] = []
         let request = makeTextRequest { result in
             switch result {
-            case .success(let cropStrings):
-                strings = cropStrings
+            case .success(let cropObservations):
+                observations = cropObservations
             case .failure(let error):
                 requestError = error
             }
@@ -82,20 +82,25 @@ final class VisionOCRService: @unchecked Sendable {
         if let requestError {
             throw requestError
         }
-        return strings
+        return observations
     }
 
-    private func makeTextRequest(collector: @escaping (Result<[String], Error>) -> Void) -> VNRecognizeTextRequest {
+    private func makeTextRequest(collector: @escaping (Result<[OCRObservation], Error>) -> Void) -> VNRecognizeTextRequest {
         let request = VNRecognizeTextRequest { request, error in
             if let error {
                 collector(.failure(error))
                 return
             }
-            let observations = request.results as? [VNRecognizedTextObservation] ?? []
-            let strings = observations.compactMap { observation in
-                observation.topCandidates(1).first?.string
+            let visionObservations = request.results as? [VNRecognizedTextObservation] ?? []
+            let observations = visionObservations.compactMap { observation -> OCRObservation? in
+                guard let candidate = observation.topCandidates(1).first else { return nil }
+                return OCRObservation(
+                    text: candidate.string,
+                    confidence: candidate.confidence,
+                    boundingBox: NormalizedRect(observation.boundingBox)
+                )
             }
-            collector(.success(strings))
+            collector(.success(observations))
         }
         request.recognitionLevel = config.recognitionLevel == "accurate" ? .accurate : .fast
         request.recognitionLanguages = ["en-US"]
