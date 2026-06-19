@@ -57,6 +57,32 @@ struct StreamGuardTestRunner {
         show("matches", emailMatches.map { "\($0.kind)=\($0.matched)" }.joined(separator: ", "))
         expect(emailMatches.contains { $0.kind == "email" }, "detects email")
 
+        let ssnDetector = PIIDetector(patterns: PatternConfig(phone: false, email: false, ssn: true))
+        let validSSNInput = "paperwork shows 123-45-6789"
+        show("input", validSSNInput)
+        let validSSNMatches = ssnDetector.detect(in: validSSNInput)
+        show("matches", validSSNMatches.map { "\($0.kind)=\($0.matched)" }.joined(separator: ", "))
+        expect(validSSNMatches.contains { $0.kind == "ssn" }, "detects valid SSN")
+
+        let invalidSSNInputs = [
+            "area zero 000-45-6789",
+            "reserved area 666-45-6789",
+            "advertising area 900-45-6789",
+            "group zero 123-00-6789",
+            "serial zero 123-45-0000",
+        ]
+        for invalidSSNInput in invalidSSNInputs {
+            show("invalid ssn input", invalidSSNInput)
+            let invalidSSNMatches = ssnDetector.detect(in: invalidSSNInput)
+            show("matches", invalidSSNMatches.map { "\($0.kind)=\($0.matched)" }.joined(separator: ", "))
+            expect(!invalidSSNMatches.contains { $0.kind == "ssn" }, "rejects impossible SSN groups")
+        }
+        let mixedSSNInput = "ignore 000-45-6789 but catch 123-45-6789"
+        show("mixed ssn input", mixedSSNInput)
+        let mixedSSNMatches = ssnDetector.detect(in: mixedSSNInput)
+        show("matches", mixedSSNMatches.map { "\($0.kind)=\($0.matched)" }.joined(separator: ", "))
+        expect(mixedSSNMatches.contains { $0.matched == "123-45-6789" }, "continues scanning after invalid SSN")
+
         section("Pattern toggles")
         let disabledPhone = PIIDetector(patterns: PatternConfig(phone: false, email: true, ssn: false))
         let disabledInput = "555-123-4567 leak@test.com"
