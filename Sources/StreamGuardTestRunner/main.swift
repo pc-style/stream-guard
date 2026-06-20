@@ -56,7 +56,20 @@ struct StreamGuardTestRunner {
         show("input", emailInput)
         let emailMatches = phoneDetector.detect(in: emailInput)
         show("matches", emailMatches.map { "\($0.kind)=\($0.matched)" }.joined(separator: ", "))
-        expect(emailMatches.contains { $0.kind == "email" }, "detects email")
+        expect(emailMatches.contains { $0.kind == "email" && $0.matched == "leak@test.com" }, "detects exact email")
+
+        let spacedEmailCases = [
+            ("email leak @ test.com here", "leak@test.com"),
+            ("email leak@test . com here", "leak@test.com"),
+            ("email leak @ test . com here", "leak@test.com"),
+            ("email leak @ test.technology here", "leak@test.technology"),
+        ]
+        for (spacedEmailInput, expectedMatch) in spacedEmailCases {
+            show("input", spacedEmailInput)
+            let spacedEmailMatches = phoneDetector.detect(in: spacedEmailInput)
+            show("matches", spacedEmailMatches.map { "\($0.kind)=\($0.matched)" }.joined(separator: ", "))
+            expect(spacedEmailMatches.contains { $0.kind == "email" && $0.matched == expectedMatch }, "detects exact OCR-spaced email punctuation")
+        }
 
         let secretInputs = [
             "token " + "ghp" + "_abcdefghijklmnopqrstuvwxyz123456",
@@ -206,6 +219,14 @@ struct StreamGuardTestRunner {
         expect(allowEngine.stateMachine.state == .clear, "whitelist suppresses matching email false positive")
         expect(allowTransition == nil, "whitelist suppression emits no transition")
         expect(allowEngine.lastDecision.whitelistMatch?.entryText == "support@example.com", "records whitelist entry")
+        let spacedAllowInput = "contact support @ example . com for public help"
+        show("input", spacedAllowInput)
+        let spacedAllowTransition = allowEngine.analyze(text: spacedAllowInput)
+        show("decision", allowEngine.lastDecision.reason)
+        show("whitelist score", String(format: "%.2f", allowEngine.lastDecision.whitelistMatch?.score ?? 0))
+        expect(allowEngine.stateMachine.state == .clear, "whitelist suppresses OCR-spaced safe email")
+        expect(spacedAllowTransition == nil, "OCR-spaced whitelist suppression emits no transition")
+        expect(allowEngine.lastDecision.whitelistMatch?.entryText == "support@example.com", "records spaced email whitelist entry")
 
         var genericAllowConfig = BlocklistConfig.default
         genericAllowConfig.patterns = PatternConfig(phone: false, email: true, ssn: false)
