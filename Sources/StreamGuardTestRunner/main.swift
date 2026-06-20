@@ -58,16 +58,16 @@ struct StreamGuardTestRunner {
         show("matches", emailMatches.map { "\($0.kind)=\($0.matched)" }.joined(separator: ", "))
         expect(emailMatches.contains { $0.kind == "email" && $0.matched == "leak@test.com" }, "detects exact email")
 
-        let spacedEmailInputs = [
-            "email leak @ test.com here",
-            "email leak@test . com here",
-            "email leak @ test . com here",
+        let spacedEmailCases = [
+            ("email leak @ test.com here", "leak @ test.com"),
+            ("email leak@test . com here", "leak@test . com"),
+            ("email leak @ test . com here", "leak @ test . com"),
         ]
-        for spacedEmailInput in spacedEmailInputs {
+        for (spacedEmailInput, expectedMatch) in spacedEmailCases {
             show("input", spacedEmailInput)
             let spacedEmailMatches = phoneDetector.detect(in: spacedEmailInput)
             show("matches", spacedEmailMatches.map { "\($0.kind)=\($0.matched)" }.joined(separator: ", "))
-            expect(spacedEmailMatches.contains { $0.kind == "email" }, "detects OCR-spaced email punctuation")
+            expect(spacedEmailMatches.contains { $0.kind == "email" && $0.matched == expectedMatch }, "detects exact OCR-spaced email punctuation")
         }
 
         let secretInputs = [
