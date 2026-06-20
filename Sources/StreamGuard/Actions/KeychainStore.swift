@@ -22,12 +22,16 @@ final class KeychainStore {
         let query = baseQuery(account: "obs.websocket.password")
         let status = SecItemCopyMatching(query as CFDictionary, nil)
         if status == errSecSuccess {
-            let updateStatus = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+            let update: [String: Any] = [
+                kSecValueData as String: data,
+                kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+            ]
+            let updateStatus = SecItemUpdate(query as CFDictionary, update as CFDictionary)
             guard updateStatus == errSecSuccess else { throw KeychainError.status(updateStatus) }
         } else if status == errSecItemNotFound {
             var add = query
             add[kSecValueData as String] = data
-            add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+            add[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
             let addStatus = SecItemAdd(add as CFDictionary, nil)
             guard addStatus == errSecSuccess else { throw KeychainError.status(addStatus) }
         } else {

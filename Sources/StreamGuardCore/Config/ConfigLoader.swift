@@ -45,7 +45,7 @@ public enum ConfigLoader {
         let userURL = userConfigURL()
         guard !FileManager.default.fileExists(atPath: userURL.path) else { return }
         if let defaultData = try? Data(contentsOf: defaultConfigURL()) {
-            try? defaultData.write(to: userURL)
+            try? defaultData.write(to: userURL, options: .atomic)
         } else {
             try? save(BlocklistConfig.default, to: userURL)
         }

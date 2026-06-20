@@ -47,6 +47,22 @@ public struct UserSettingsConfig: Codable, Sendable, Equatable {
         self.enableCards = enableCards
         self.enableNationalIDs = enableNationalIDs
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case protectionMode, sensitivity, sensitiveText, safeText, enableSecrets, enableCards, enableNationalIDs
+    }
+
+    public init(from decoder: Decoder) throws {
+        let defaults = UserSettingsConfig()
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.protectionMode = try container.decodeIfPresent(ProtectionMode.self, forKey: .protectionMode) ?? defaults.protectionMode
+        self.sensitivity = try container.decodeIfPresent(SensitivityProfile.self, forKey: .sensitivity) ?? defaults.sensitivity
+        self.sensitiveText = try container.decodeIfPresent([String].self, forKey: .sensitiveText) ?? defaults.sensitiveText
+        self.safeText = try container.decodeIfPresent([String].self, forKey: .safeText) ?? defaults.safeText
+        self.enableSecrets = try container.decodeIfPresent(Bool.self, forKey: .enableSecrets) ?? defaults.enableSecrets
+        self.enableCards = try container.decodeIfPresent(Bool.self, forKey: .enableCards) ?? defaults.enableCards
+        self.enableNationalIDs = try container.decodeIfPresent(Bool.self, forKey: .enableNationalIDs) ?? defaults.enableNationalIDs
+    }
 }
 
 public enum OBSReadinessState: String, Codable, Sendable, Equatable {
@@ -159,14 +175,16 @@ public struct OCRListEntry: Codable, Sendable, Equatable {
     public var text: String
     public var fuzzy: Bool
     public var minimumSimilarity: Double
+    public var managedByUserSettings: Bool
 
-    public init(text: String, fuzzy: Bool = true, minimumSimilarity: Double = 0.88) {
+    public init(text: String, fuzzy: Bool = true, minimumSimilarity: Double = 0.88, managedByUserSettings: Bool = false) {
         self.text = text
         self.fuzzy = fuzzy
         self.minimumSimilarity = Self.clampedSimilarity(minimumSimilarity)
+        self.managedByUserSettings = managedByUserSettings
     }
 
-    private enum CodingKeys: String, CodingKey { case text, fuzzy, minimumSimilarity }
+    private enum CodingKeys: String, CodingKey { case text, fuzzy, minimumSimilarity, managedByUserSettings }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -174,6 +192,7 @@ public struct OCRListEntry: Codable, Sendable, Equatable {
         self.fuzzy = try container.decodeIfPresent(Bool.self, forKey: .fuzzy) ?? true
         let similarity = try container.decodeIfPresent(Double.self, forKey: .minimumSimilarity) ?? 0.88
         self.minimumSimilarity = Self.clampedSimilarity(similarity)
+        self.managedByUserSettings = try container.decodeIfPresent(Bool.self, forKey: .managedByUserSettings) ?? false
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -181,6 +200,9 @@ public struct OCRListEntry: Codable, Sendable, Equatable {
         try container.encode(text, forKey: .text)
         try container.encode(fuzzy, forKey: .fuzzy)
         try container.encode(minimumSimilarity, forKey: .minimumSimilarity)
+        if managedByUserSettings {
+            try container.encode(managedByUserSettings, forKey: .managedByUserSettings)
+        }
     }
 
     private static func clampedSimilarity(_ value: Double) -> Double {
@@ -339,32 +361,42 @@ public struct BlocklistConfig: Codable, Sendable, Equatable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.phrases = try container.decodeIfPresent([PhraseEntry].self, forKey: .phrases) ?? []
-        self.patterns = try container.decodeIfPresent(PatternConfig.self, forKey: .patterns) ?? PatternConfig()
+        self.userSettings = try container.decodeIfPresent(UserSettingsConfig.self, forKey: .userSettings) ?? UserSettingsConfig()
+        if container.contains(.patterns) {
+            self.patterns = try container.decode(PatternConfig.self, forKey: .patterns)
+        } else {
+            self.patterns = PatternConfig(
+                phone: true,
+                email: true,
+                ssn: false,
+                secrets: userSettings.enableSecrets,
+                cards: userSettings.enableCards,
+                nationalIDs: userSettings.enableNationalIDs
+            )
+        }
         self.hysteresis = try container.decodeIfPresent(HysteresisConfig.self, forKey: .hysteresis) ?? HysteresisConfig()
         self.ocr = try container.decodeIfPresent(OCRConfig.self, forKey: .ocr) ?? OCRConfig()
         self.filtering = try container.decodeIfPresent(OCRFilteringConfig.self, forKey: .filtering) ?? OCRFilteringConfig()
         self.pipeline = try container.decodeIfPresent(PipelineConfig.self, forKey: .pipeline) ?? PipelineConfig()
         self.obs = try container.decodeIfPresent(OBSConfig.self, forKey: .obs) ?? OBSConfig()
-        self.userSettings = try container.decodeIfPresent(UserSettingsConfig.self, forKey: .userSettings) ?? UserSettingsConfig()
         applyUserSettingsCompatibility()
     }
 
     public mutating func applyUserSettingsCompatibility() {
-        patterns.secrets = userSettings.enableSecrets
-        patterns.cards = userSettings.enableCards
-        patterns.nationalIDs = userSettings.enableNationalIDs
-        filtering.mode = .blacklist
-        merge(entries: userSettings.safeText, into: &filtering.whitelist, defaultSimilarity: 0.92)
-        merge(entries: userSettings.sensitiveText, into: &filtering.blacklist, defaultSimilarity: userSettings.sensitivity == .safe ? 0.84 : 0.90)
+        reconcile(entries: userSettings.safeText, into: &filtering.whitelist, defaultSimilarity: 0.92)
+        reconcile(entries: userSettings.sensitiveText, into: &filtering.blacklist, defaultSimilarity: userSettings.sensitivity == .safe ? 0.84 : 0.90)
         hysteresis.triggerFrames = userSettings.sensitivity == .safe ? 1 : max(hysteresis.triggerFrames, 2)
     }
 
-    private func merge(entries: [String], into list: inout [OCRListEntry], defaultSimilarity: Double) {
-        let existing = Set(list.map { TextNormalizer.normalize($0.text) })
+    private func reconcile(entries: [String], into list: inout [OCRListEntry], defaultSimilarity: Double) {
+        list.removeAll { $0.managedByUserSettings }
+        var existing = Set(list.map { TextNormalizer.normalize($0.text) })
         for text in entries {
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty, !existing.contains(TextNormalizer.normalize(trimmed)) else { continue }
-            list.append(OCRListEntry(text: trimmed, fuzzy: true, minimumSimilarity: defaultSimilarity))
+            let normalized = TextNormalizer.normalize(trimmed)
+            guard !trimmed.isEmpty, !existing.contains(normalized) else { continue }
+            list.append(OCRListEntry(text: trimmed, fuzzy: true, minimumSimilarity: defaultSimilarity, managedByUserSettings: true))
+            existing.insert(normalized)
         }
     }
 

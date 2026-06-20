@@ -125,7 +125,7 @@ public final class DetectionEngine: @unchecked Sendable {
         }
 
         let match = MatchResult(
-            kind: "blur-all-buggy",
+            kind: "blur-all-advanced",
             matched: String(token),
             score: 1,
             ruleText: "any OCR text"

@@ -15,6 +15,7 @@ final class OBSWebSocketClient: @unchecked Sendable {
     private var pendingResponses: [String: (OBSRequestResult) -> Void] = [:]
     private var pendingActions: [() -> Void] = []
     private var readinessCompletion: ((OBSReadiness) -> Void)?
+    private var readinessTestInProgress = false
     private(set) var lastReadiness = OBSReadiness()
 
     init(config: OBSConfig, passwordProvider: @escaping () -> String? = { KeychainStore.shared.obsPassword() }) {
@@ -45,8 +46,14 @@ final class OBSWebSocketClient: @unchecked Sendable {
     func testConnectionAndBlackout(completion: @escaping (OBSReadiness) -> Void) {
         queue.async {
             self.readinessCompletion = completion
+            self.readinessTestInProgress = true
             self.disconnectLocked()
             self.connectIfNeededLocked()
+            self.queue.asyncAfter(deadline: .now() + 5) { [weak self] in
+                guard let self, self.readinessTestInProgress, !self.identified else { return }
+                self.completeReadiness(OBSReadiness(state: .disconnected, message: "Timed out waiting for OBS websocket hello", testedAt: Date()))
+                self.disconnectLocked()
+            }
             self.runWhenReady { self.verifyProtectedScene() }
         }
     }
@@ -84,7 +91,10 @@ final class OBSWebSocketClient: @unchecked Sendable {
 
     private func connectIfNeededLocked() {
         guard config.enabled, webSocket == nil else { return }
-        guard let url = URL(string: "ws://\(config.host):\(config.port)") else { return }
+        guard let url = URL(string: "ws://\(config.host):\(config.port)") else {
+            completeReadinessIfTesting(OBSReadiness(state: .disconnected, message: "Invalid OBS websocket URL", testedAt: Date()))
+            return
+        }
         setReadiness(.disconnected, "Connecting to OBS…")
         let task = session.webSocketTask(with: url)
         webSocket = task
@@ -202,8 +212,10 @@ final class OBSWebSocketClient: @unchecked Sendable {
                     @unknown default: break
                     }
                     self.receiveLoop()
-                case .failure:
-                    self.setReadiness(.disconnected, "OBS websocket disconnected")
+                case .failure(let error):
+                    let readiness = OBSReadiness(state: .disconnected, message: "OBS websocket disconnected: \(error.localizedDescription)", testedAt: Date())
+                    self.setReadiness(readiness.state, readiness.message)
+                    self.completeReadinessIfTesting(readiness)
                     self.disconnectLocked()
                 }
             }
@@ -259,9 +271,15 @@ final class OBSWebSocketClient: @unchecked Sendable {
 
     private func completeReadiness(_ readiness: OBSReadiness) {
         lastReadiness = readiness
+        readinessTestInProgress = false
         let completion = readinessCompletion
         readinessCompletion = nil
         completion?(readiness)
+    }
+
+    private func completeReadinessIfTesting(_ readiness: OBSReadiness) {
+        guard readinessTestInProgress else { return }
+        completeReadiness(readiness)
     }
 
     private static func authentication(password: String, salt: String, challenge: String) -> String {
@@ -275,11 +293,16 @@ final class OBSWebSocketClient: @unchecked Sendable {
     private func sendRaw(_ payload: [String: Any]) { guard let webSocket else { return }; sendRaw(payload, webSocket: webSocket) }
 
     private func sendRaw(_ payload: [String: Any], webSocket: URLSessionWebSocketTask) {
-        guard let data = try? JSONSerialization.data(withJSONObject: payload), let text = String(data: data, encoding: .utf8) else { return }
+        guard let data = try? JSONSerialization.data(withJSONObject: payload), let text = String(data: data, encoding: .utf8) else {
+            completeReadinessIfTesting(OBSReadiness(state: .testBlackoutFailed, message: "Could not encode OBS websocket request", testedAt: Date()))
+            return
+        }
         webSocket.send(.string(text)) { [weak self] error in
-            guard error != nil else { return }
+            guard let error else { return }
             self?.queue.async {
-                self?.setReadiness(.disconnected, "OBS websocket send failed")
+                let readiness = OBSReadiness(state: .disconnected, message: "OBS websocket send failed: \(error.localizedDescription)", testedAt: Date())
+                self?.setReadiness(readiness.state, readiness.message)
+                self?.completeReadinessIfTesting(readiness)
                 self?.disconnectLocked()
             }
         }

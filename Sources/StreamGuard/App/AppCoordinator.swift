@@ -110,27 +110,26 @@ final class AppCoordinator: NSObject, ScreenCaptureDelegate {
     func startMonitoring() {
         guard !isMonitoring else { return }
 
+        if !captureManager.hasPermission() {
+            permissionGrantedAfterRequest = captureManager.requestPermission()
+            if !captureManager.hasPermission() {
+                notify("Screen Recording permission required")
+                return
+            }
+            if permissionGrantedAfterRequest {
+                notify("Permission granted — please restart Stream Guard")
+                return
+            }
+        }
+
         let readiness = currentSetupReadiness
         guard readiness.canStartProtection else {
-            if !readiness.screenRecordingGranted {
-                notify("Screen Recording permission required")
-            } else if readiness.protectionMode.usesOBS && !readiness.obs.isReady {
+            if readiness.protectionMode.usesOBS && !readiness.obs.isReady {
                 notify("OBS protection refused: \(readiness.obs.message)")
             } else {
                 notify("Detector settings incomplete")
             }
             return
-        }
-
-        if !captureManager.hasPermission() {
-            permissionGrantedAfterRequest = captureManager.requestPermission()
-            if !captureManager.hasPermission() {
-                notify("Screen recording permission required")
-                return
-            }
-            if permissionGrantedAfterRequest {
-                notify("Permission granted — please restart Stream Guard")
-            }
         }
 
         Task {
@@ -234,6 +233,9 @@ final class AppCoordinator: NSObject, ScreenCaptureDelegate {
 
     func updateUserSettings(_ settings: UserSettingsConfig) {
         config.userSettings = settings
+        config.patterns.secrets = settings.enableSecrets
+        config.patterns.cards = settings.enableCards
+        config.patterns.nationalIDs = settings.enableNationalIDs
         config.applyUserSettingsCompatibility()
         persistAndApplyConfig(config)
         notify("Settings saved")
@@ -280,8 +282,13 @@ final class AppCoordinator: NSObject, ScreenCaptureDelegate {
                 }
             }
         )
-        try? server.start()
-        webServer = server
+        do {
+            try server.start()
+            webServer = server
+        } catch {
+            NSLog("Stream Guard diagnostics server failed to start: \(error.localizedDescription)")
+            notify("Diagnostics server failed: \(error.localizedDescription)")
+        }
     }
 
     private func setupConfigWatcher() {

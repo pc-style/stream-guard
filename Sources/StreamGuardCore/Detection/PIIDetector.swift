@@ -96,8 +96,8 @@ public struct PIIDetector: Sendable {
         for (kind, pattern, label) in patterns {
             guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
             let range = NSRange(text.startIndex..<text.endIndex, in: text)
-            if let match = regex.firstMatch(in: text, range: range),
-               let swiftRange = Range(match.range, in: text) {
+            for match in regex.matches(in: text, range: range) {
+                guard let swiftRange = Range(match.range, in: text) else { continue }
                 results.append(MatchResult(kind: kind, matched: String(text[swiftRange]), score: 1, ruleText: label))
             }
         }

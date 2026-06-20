@@ -39,17 +39,33 @@ local function ensure_scene_object(name)
     return obs.obs_scene_create(name)
 end
 
+local function canvas_dimensions()
+    local video_info = obs.obs_video_info()
+    if obs.obs_get_video_info(video_info) then
+        return video_info.base_width, video_info.base_height
+    end
+    return 1920, 1080
+end
+
+local function blackout_settings_for_canvas()
+    local width, height = canvas_dimensions()
+    local settings = obs.obs_data_create()
+    obs.obs_data_set_int(settings, "color", 0xFF000000)
+    obs.obs_data_set_int(settings, "width", width)
+    obs.obs_data_set_int(settings, "height", height)
+    return settings
+end
+
 local function ensure_blackout_source()
+    local settings = blackout_settings_for_canvas()
     local existing = scene_source_by_name(blackout_source_name)
     if existing ~= nil then
+        obs.obs_source_update(existing, settings)
+        obs.obs_data_release(settings)
         return existing
     end
 
-    local settings = obs.obs_data_create()
-    obs.obs_data_set_int(settings, "color", 0xFF000000)
-    obs.obs_data_set_int(settings, "width", 1920)
-    obs.obs_data_set_int(settings, "height", 1080)
-    local source = obs.obs_source_create("color_source_v3", blackout_source_name, settings, nil)
+    local source = obs.obs_source_create("color_source", blackout_source_name, settings, nil)
     obs.obs_data_release(settings)
     return source
 end
@@ -104,7 +120,7 @@ local function fit_item_to_canvas(item)
     local bounds = obs.vec2()
     bounds.x = video_info.base_width
     bounds.y = video_info.base_height
-    obs.obs_sceneitem_set_bounds_type(item, obs.OBS_BOUNDS_SCALE_INNER)
+    obs.obs_sceneitem_set_bounds_type(item, obs.OBS_BOUNDS_STRETCH)
     obs.obs_sceneitem_set_bounds(item, bounds)
 
     local pos = obs.vec2()

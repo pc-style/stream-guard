@@ -15,14 +15,20 @@ struct LaunchAgentManager {
     }
 
     static func isEnabled() -> Bool {
-        FileManager.default.fileExists(atPath: plistURL.path)
+        guard FileManager.default.fileExists(atPath: plistURL.path) else { return false }
+        return (try? shell("launchctl", "print", "gui/\(getuid())/\(label)")) != nil
     }
 
     static func setEnabled(_ enabled: Bool) throws {
         if enabled {
             try writePlist()
             _ = try? shell("launchctl", "bootout", "gui/\(getuid())", plistURL.path)
-            try shell("launchctl", "bootstrap", "gui/\(getuid())", plistURL.path)
+            do {
+                try shell("launchctl", "bootstrap", "gui/\(getuid())", plistURL.path)
+            } catch {
+                try? FileManager.default.removeItem(at: plistURL)
+                throw error
+            }
         } else {
             _ = try? shell("launchctl", "bootout", "gui/\(getuid())", plistURL.path)
             if FileManager.default.fileExists(atPath: plistURL.path) {
