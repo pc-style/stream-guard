@@ -205,7 +205,7 @@ public struct PIIDetector: Sendable {
         let candidate = String(text[swiftRange])
         guard candidate.contains(where: \.isWhitespace) else { return nil }
         let normalizedCandidate = candidate.replacingOccurrences(of: #"\s+"#, with: "", options: .regularExpression)
-        return detectEmail(in: normalizedCandidate) != nil ? candidate : nil
+        return detectEmail(in: normalizedCandidate)
     }
 
     private func detectSSN(in text: String) -> String? {
