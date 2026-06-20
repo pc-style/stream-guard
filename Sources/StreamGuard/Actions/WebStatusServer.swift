@@ -28,7 +28,10 @@ final class WebStatusServer: @unchecked Sendable {
     func start() throws {
         let parameters = NWParameters.tcp
         parameters.allowLocalEndpointReuse = true
-        // NWListener binds to all interfaces for the selected port, equivalent to 0.0.0.0.
+        parameters.requiredLocalEndpoint = NWEndpoint.hostPort(
+            host: .ipv4(IPv4Address(WebPrivacyPolicy.defaultBindHost)!),
+            port: .any
+        )
         listener = try NWListener(using: parameters, on: NWEndpoint.Port(rawValue: port)!)
         listener?.newConnectionHandler = { [weak self] connection in
             self?.handle(connection: connection)
@@ -166,7 +169,6 @@ final class WebStatusServer: @unchecked Sendable {
         let response = """
         \(statusLine)\r
         Content-Type: \(contentType)\r
-        Access-Control-Allow-Origin: *\r
         Content-Length: \(body.utf8.count)\r
         Connection: close\r
         \r

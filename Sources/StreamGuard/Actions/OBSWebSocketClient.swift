@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import StreamGuardCore
 
@@ -6,15 +7,22 @@ final class OBSWebSocketClient: @unchecked Sendable {
     private var webSocket: URLSessionWebSocketTask?
     private let session = URLSession(configuration: .default)
     private let queue = DispatchQueue(label: "dev.pcstyle.stream-guard.obs")
+    private let passwordProvider: () -> String?
     private var previousScene: String?
     private var connected = false
     private var identified = false
     private var requestCounter = 0
-    private var pendingResponses: [String: ([String: Any]?) -> Void] = [:]
+    private var pendingResponses: [String: (OBSRequestResult) -> Void] = [:]
     private var pendingActions: [() -> Void] = []
+    private var readinessCompletion: ((OBSReadiness) -> Void)?
+    private var readinessTestInProgress = false
+    private var connectionGeneration = 0
+    private var readinessTestGeneration = 0
+    private(set) var lastReadiness = OBSReadiness()
 
-    init(config: OBSConfig) {
+    init(config: OBSConfig, passwordProvider: @escaping () -> String? = { KeychainStore.shared.obsPassword() }) {
         self.config = config
+        self.passwordProvider = passwordProvider
     }
 
     func updateConfig(_ config: OBSConfig) {
@@ -22,9 +30,7 @@ final class OBSWebSocketClient: @unchecked Sendable {
             let endpointChanged = self.config.host != config.host || self.config.port != config.port
             self.config = config
             if config.enabled {
-                if endpointChanged {
-                    self.disconnectLocked()
-                }
+                if endpointChanged { self.disconnectLocked() }
                 self.connectIfNeededLocked()
             } else {
                 self.disconnectLocked()
@@ -32,15 +38,31 @@ final class OBSWebSocketClient: @unchecked Sendable {
         }
     }
 
-    func connectIfNeeded() {
-        queue.async {
-            self.connectIfNeededLocked()
-        }
+    func connectIfNeeded() { queue.async { self.connectIfNeededLocked() } }
+    func disconnect() { queue.async { self.disconnectLocked() } }
+
+    func readiness(completion: @escaping (OBSReadiness) -> Void) {
+        queue.async { completion(self.lastReadiness) }
     }
 
-    func disconnect() {
+    func testConnectionAndBlackout(completion: @escaping (OBSReadiness) -> Void) {
         queue.async {
+            self.readinessCompletion = completion
+            self.readinessTestInProgress = true
+            self.readinessTestGeneration += 1
+            let testGeneration = self.readinessTestGeneration
             self.disconnectLocked()
+            let testTask = self.connectIfNeededLocked()
+            self.queue.asyncAfter(deadline: .now() + 5) { [weak self, weak testTask] in
+                guard let self,
+                      self.readinessTestInProgress,
+                      self.readinessTestGeneration == testGeneration,
+                      !self.identified,
+                      self.webSocket === testTask else { return }
+                self.completeReadiness(OBSReadiness(state: .disconnected, message: "Timed out waiting for OBS websocket hello", testedAt: Date()), testGeneration: testGeneration)
+                self.disconnectLocked()
+            }
+            self.runWhenReady { self.verifyProtectedScene(testGeneration: testGeneration) }
         }
     }
 
@@ -51,11 +73,9 @@ final class OBSWebSocketClient: @unchecked Sendable {
                 if self.config.controlMode == "source" {
                     self.setBlackoutSource(enabled: true)
                 } else {
-                    self.sendRequest(type: "GetCurrentProgramScene") { [weak self] response in
+                    self.sendRequest(type: "GetCurrentProgramScene") { [weak self] result in
                         guard let self else { return }
-                        if let sceneName = response?["currentProgramSceneName"] as? String {
-                            self.previousScene = sceneName
-                        }
+                        if let sceneName = result.data?["currentProgramSceneName"] as? String { self.previousScene = sceneName }
                         self.setScene(name: self.config.blackoutScene)
                     }
                 }
@@ -77,17 +97,27 @@ final class OBSWebSocketClient: @unchecked Sendable {
         }
     }
 
-    private func connectIfNeededLocked() {
-        guard config.enabled, webSocket == nil else { return }
-        guard let url = URL(string: "ws://\(config.host):\(config.port)") else { return }
+    @discardableResult
+    private func connectIfNeededLocked() -> URLSessionWebSocketTask? {
+        guard config.enabled else { return nil }
+        if let webSocket { return webSocket }
+        guard let url = URL(string: "ws://\(config.host):\(config.port)") else {
+            completeReadinessIfTesting(OBSReadiness(state: .disconnected, message: "Invalid OBS websocket URL", testedAt: Date()))
+            return nil
+        }
+        setReadiness(.disconnected, "Connecting to OBS…")
+        connectionGeneration += 1
+        let generation = connectionGeneration
         let task = session.webSocketTask(with: url)
         webSocket = task
         connected = true
         task.resume()
-        receiveLoop()
+        receiveLoop(task: task, generation: generation)
+        return task
     }
 
     private func disconnectLocked() {
+        connectionGeneration += 1
         webSocket?.cancel(with: .goingAway, reason: nil)
         webSocket = nil
         connected = false
@@ -98,97 +128,116 @@ final class OBSWebSocketClient: @unchecked Sendable {
 
     private func runWhenReady(_ action: @escaping () -> Void) {
         connectIfNeededLocked()
-        if identified {
-            action()
-        } else {
-            pendingActions.append(action)
-        }
+        if identified { action() } else { pendingActions.append(action) }
     }
 
     private func flushPendingActions() {
         let actions = pendingActions
         pendingActions.removeAll()
-        for action in actions {
-            action()
-        }
+        for action in actions { action() }
     }
 
-    private func setScene(name: String) {
-        sendRequest(type: "SetCurrentProgramScene", data: ["sceneName": name])
-    }
+    private func setScene(name: String) { sendRequest(type: "SetCurrentProgramScene", data: ["sceneName": name]) }
 
-    private func setBlackoutSource(enabled: Bool) {
+    private func setBlackoutSource(enabled: Bool, completion: ((Bool) -> Void)? = nil) {
         let sceneName = config.protectedScene
         let sourceName = config.blackoutSource
-        sendRequest(
-            type: "GetSceneItemId",
-            data: [
-                "sceneName": sceneName,
-                "sourceName": sourceName,
-            ]
-        ) { [weak self] response in
-            guard let self,
-                  let itemId = response?["sceneItemId"] as? Int else { return }
-            self.sendRequest(
-                type: "SetSceneItemEnabled",
-                data: [
-                    "sceneName": sceneName,
-                    "sceneItemId": itemId,
-                    "sceneItemEnabled": enabled,
-                ]
-            )
+        sendRequest(type: "GetSceneItemId", data: ["sceneName": sceneName, "sourceName": sourceName]) { [weak self] result in
+            guard let self, result.ok, let itemId = result.data?["sceneItemId"] as? Int else {
+                completion?(false)
+                return
+            }
+            self.sendRequest(type: "SetSceneItemEnabled", data: ["sceneName": sceneName, "sceneItemId": itemId, "sceneItemEnabled": enabled]) { result in
+                completion?(result.ok)
+            }
         }
     }
 
-    private func sendRequest(type: String, data: [String: Any] = [:], completion: (([String: Any]?) -> Void)? = nil) {
-        guard connected, identified, let webSocket else {
-            if let completion {
-                pendingActions.append { self.sendRequest(type: type, data: data, completion: completion) }
-            } else {
-                pendingActions.append { self.sendRequest(type: type, data: data) }
+    private func verifyProtectedScene(testGeneration: Int? = nil) {
+        setReadiness(.authenticated, "OBS authenticated; verifying protected scene…")
+        sendRequest(type: "GetSceneList") { [weak self] result in
+            guard let self else { return }
+            guard result.ok, let scenes = result.data?["scenes"] as? [[String: Any]] else {
+                self.completeReadiness(OBSReadiness(state: .disconnected, message: result.comment ?? "Could not query OBS scenes", testedAt: Date()), testGeneration: testGeneration)
+                return
             }
+            let names = Set(scenes.compactMap { $0["sceneName"] as? String })
+            guard names.contains(self.config.protectedScene) else {
+                self.completeReadiness(OBSReadiness(state: .protectedSceneMissing, message: "Protected delayed scene ‘\(self.config.protectedScene)’ is missing", testedAt: Date()), testGeneration: testGeneration)
+                return
+            }
+            self.verifyBlackoutSource(testGeneration: testGeneration)
+        }
+    }
+
+    private func verifyBlackoutSource(testGeneration: Int? = nil) {
+        sendRequest(type: "GetSceneItemId", data: ["sceneName": config.protectedScene, "sourceName": config.blackoutSource]) { [weak self] result in
+            guard let self else { return }
+            guard result.ok, result.data?["sceneItemId"] is Int else {
+                self.completeReadiness(OBSReadiness(state: .blackoutSourceMissing, message: "Blackout source ‘\(self.config.blackoutSource)’ is missing in ‘\(self.config.protectedScene)’", testedAt: Date()), testGeneration: testGeneration)
+                return
+            }
+            self.testBlackoutToggle(testGeneration: testGeneration)
+        }
+    }
+
+    private func testBlackoutToggle(testGeneration: Int? = nil) {
+        setBlackoutSource(enabled: true) { [weak self] enabled in
+            guard let self else { return }
+            guard enabled else {
+                self.completeReadiness(OBSReadiness(state: .testBlackoutFailed, message: "Could not enable blackout source", testedAt: Date()), testGeneration: testGeneration)
+                return
+            }
+            self.queue.asyncAfter(deadline: .now() + 0.35) {
+                self.setBlackoutSource(enabled: false) { disabled in
+                    let readiness = disabled
+                        ? OBSReadiness(state: .ready, message: "OBS ready: protected scene and blackout source verified", testedAt: Date())
+                        : OBSReadiness(state: .testBlackoutFailed, message: "Could not disable blackout source after test", testedAt: Date())
+                    self.completeReadiness(readiness, testGeneration: testGeneration)
+                }
+            }
+        }
+    }
+
+    private func sendRequest(type: String, data: [String: Any] = [:], completion: ((OBSRequestResult) -> Void)? = nil) {
+        guard connected, identified, let webSocket else {
+            if let completion { pendingActions.append { self.sendRequest(type: type, data: data, completion: completion) } }
+            else { pendingActions.append { self.sendRequest(type: type, data: data) } }
             connectIfNeededLocked()
             return
         }
         requestCounter += 1
         let requestId = "sg-\(requestCounter)"
-        if let completion {
-            pendingResponses[requestId] = completion
-        }
-        let payload: [String: Any] = [
-            "op": 6,
-            "d": [
-                "requestType": type,
-                "requestId": requestId,
-                "requestData": data,
-            ],
-        ]
+        if let completion { pendingResponses[requestId] = completion }
+        let payload: [String: Any] = ["op": 6, "d": ["requestType": type, "requestId": requestId, "requestData": data]]
         sendRaw(payload, webSocket: webSocket)
     }
 
-    private func receiveLoop() {
-        guard let webSocket else { return }
-        webSocket.receive { [weak self] result in
-            guard let self else { return }
+    private func receiveLoop(task: URLSessionWebSocketTask, generation: Int) {
+        task.receive { [weak self, weak task] result in
+            guard let self, let task else { return }
             self.queue.async {
+                guard self.isActive(task: task, generation: generation) else { return }
                 switch result {
                 case .success(let message):
                     switch message {
-                    case .string(let text):
-                        self.handleMessage(text)
-                    case .data(let data):
-                        if let text = String(data: data, encoding: .utf8) {
-                            self.handleMessage(text)
-                        }
-                    @unknown default:
-                        break
+                    case .string(let text): self.handleMessage(text)
+                    case .data(let data): if let text = String(data: data, encoding: .utf8) { self.handleMessage(text) }
+                    @unknown default: break
                     }
-                    self.receiveLoop()
-                case .failure:
+                    self.receiveLoop(task: task, generation: generation)
+                case .failure(let error):
+                    let readiness = OBSReadiness(state: .disconnected, message: "OBS websocket disconnected: \(error.localizedDescription)", testedAt: Date())
+                    self.setReadiness(readiness.state, readiness.message)
+                    self.completeReadinessIfTesting(readiness)
                     self.disconnectLocked()
                 }
             }
         }
+    }
+
+    private func isActive(task: URLSessionWebSocketTask, generation: Int) -> Bool {
+        webSocket === task && connectionGeneration == generation
     }
 
     private func handleMessage(_ text: String) {
@@ -198,40 +247,94 @@ final class OBSWebSocketClient: @unchecked Sendable {
 
         switch op {
         case 0:
-            let identify: [String: Any] = [
-                "op": 1,
-                "d": [
-                    "rpcVersion": 1,
-                    "eventSubscriptions": 0,
-                ],
-            ]
-            sendRaw(identify)
+            guard let d = json["d"] as? [String: Any] else { return }
+            var identifyData: [String: Any] = ["rpcVersion": 1, "eventSubscriptions": 0]
+            if let auth = d["authentication"] as? [String: Any] {
+                guard let password = passwordProvider(), !password.isEmpty else {
+                    completeReadiness(OBSReadiness(state: .passwordRequired, message: "OBS requires a websocket password; save it in setup to continue", testedAt: Date()))
+                    disconnectLocked()
+                    return
+                }
+                guard let challenge = auth["challenge"] as? String, let salt = auth["salt"] as? String else {
+                    completeReadiness(OBSReadiness(state: .passwordRequired, message: "OBS authentication challenge was invalid", testedAt: Date()))
+                    disconnectLocked()
+                    return
+                }
+                identifyData["authentication"] = Self.authentication(password: password, salt: salt, challenge: challenge)
+            }
+            sendRaw(["op": 1, "d": identifyData])
         case 2:
             identified = true
+            setReadiness(.authenticated, "OBS websocket authenticated")
             flushPendingActions()
         case 7:
-            guard let body = json["d"] as? [String: Any],
-                  let requestId = body["requestId"] as? String else { return }
-            let completion = pendingResponses.removeValue(forKey: requestId)
-            completion?(body["responseData"] as? [String: Any])
+            guard let body = json["d"] as? [String: Any], let requestId = body["requestId"] as? String else { return }
+            let status = body["requestStatus"] as? [String: Any]
+            let code = status?["code"] as? Int ?? 100
+            let result = OBSRequestResult(
+                ok: status?["result"] as? Bool ?? (code == 100),
+                code: code,
+                comment: status?["comment"] as? String,
+                data: body["responseData"] as? [String: Any]
+            )
+            pendingResponses.removeValue(forKey: requestId)?(result)
         default:
             break
         }
     }
 
-    private func sendRaw(_ payload: [String: Any]) {
-        guard let webSocket else { return }
-        sendRaw(payload, webSocket: webSocket)
+    private func setReadiness(_ state: OBSReadinessState, _ message: String) {
+        lastReadiness = OBSReadiness(state: state, message: message, testedAt: Date())
     }
 
+    private func completeReadiness(_ readiness: OBSReadiness, testGeneration: Int? = nil) {
+        if let testGeneration, testGeneration != readinessTestGeneration {
+            return
+        }
+        lastReadiness = readiness
+        readinessTestInProgress = false
+        let completion = readinessCompletion
+        readinessCompletion = nil
+        completion?(readiness)
+    }
+
+    private func completeReadinessIfTesting(_ readiness: OBSReadiness) {
+        guard readinessTestInProgress else { return }
+        completeReadiness(readiness)
+    }
+
+    private static func authentication(password: String, salt: String, challenge: String) -> String {
+        let secret = Data((password + salt).utf8)
+        let secretHash = SHA256.hash(data: secret)
+        let secretBase64 = Data(secretHash).base64EncodedString()
+        let authHash = SHA256.hash(data: Data((secretBase64 + challenge).utf8))
+        return Data(authHash).base64EncodedString()
+    }
+
+    private func sendRaw(_ payload: [String: Any]) { guard let webSocket else { return }; sendRaw(payload, webSocket: webSocket) }
+
     private func sendRaw(_ payload: [String: Any], webSocket: URLSessionWebSocketTask) {
-        guard let data = try? JSONSerialization.data(withJSONObject: payload),
-              let text = String(data: data, encoding: .utf8) else { return }
-        webSocket.send(.string(text)) { [weak self] error in
-            guard error != nil else { return }
+        guard let data = try? JSONSerialization.data(withJSONObject: payload), let text = String(data: data, encoding: .utf8) else {
+            completeReadinessIfTesting(OBSReadiness(state: .testBlackoutFailed, message: "Could not encode OBS websocket request", testedAt: Date()))
+            return
+        }
+        let generation = connectionGeneration
+        webSocket.send(.string(text)) { [weak self, weak webSocket] error in
+            guard let error, let webSocket else { return }
             self?.queue.async {
+                guard self?.isActive(task: webSocket, generation: generation) == true else { return }
+                let readiness = OBSReadiness(state: .disconnected, message: "OBS websocket send failed: \(error.localizedDescription)", testedAt: Date())
+                self?.setReadiness(readiness.state, readiness.message)
+                self?.completeReadinessIfTesting(readiness)
                 self?.disconnectLocked()
             }
         }
     }
+}
+
+private struct OBSRequestResult {
+    let ok: Bool
+    let code: Int
+    let comment: String?
+    let data: [String: Any]?
 }

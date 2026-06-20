@@ -9,7 +9,10 @@
   "patterns": {
     "phone": true,
     "email": true,
-    "ssn": false
+    "ssn": false,
+    "secrets": true,
+    "cards": false,
+    "nationalIDs": false
   },
   "hysteresis": {
     "triggerFrames": 1,
@@ -35,16 +38,25 @@
     ]
   },
   "pipeline": {
-    "mode": "fullFrame",
+    "mode": "roiCascade",
     "yodoShowsMasks": true
   },
   "obs": {
-    "enabled": false,
+    "enabled": true,
     "host": "127.0.0.1",
     "port": 4455,
-    "controlMode": "scene",
+    "controlMode": "source",
     "blackoutScene": "BLACKOUT",
     "protectedScene": "STREAM_GUARD_PROTECTED",
     "blackoutSource": "STREAM_GUARD_BLACKOUT"
+  },
+  "userSettings": {
+    "protectionMode": "both",
+    "sensitivity": "safe",
+    "sensitiveText": [],
+    "safeText": [],
+    "enableSecrets": true,
+    "enableCards": false,
+    "enableNationalIDs": false
   }
 }

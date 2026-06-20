@@ -125,7 +125,7 @@ public final class DetectionEngine: @unchecked Sendable {
         }
 
         let match = MatchResult(
-            kind: "blur-all-buggy",
+            kind: "blur-all-advanced",
             matched: String(token),
             score: 1,
             ruleText: "any OCR text"
@@ -135,7 +135,7 @@ public final class DetectionEngine: @unchecked Sendable {
             shouldTrigger: true,
             match: match,
             whitelistMatch: nil,
-            reason: "Buggy blur-all mode blocks any detected OCR text"
+            reason: "Advanced blur-all mode blocks any detected OCR text"
         )
     }
 

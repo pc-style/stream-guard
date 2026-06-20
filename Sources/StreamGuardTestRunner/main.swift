@@ -1,4 +1,5 @@
 import Foundation
+import Network
 import StreamGuardCore
 
 @main
@@ -56,6 +57,27 @@ struct StreamGuardTestRunner {
         let emailMatches = phoneDetector.detect(in: emailInput)
         show("matches", emailMatches.map { "\($0.kind)=\($0.matched)" }.joined(separator: ", "))
         expect(emailMatches.contains { $0.kind == "email" }, "detects email")
+
+        let secretInputs = [
+            "token " + "ghp" + "_abcdefghijklmnopqrstuvwxyz123456",
+            "openai " + "sk" + "-abcdefghijklmnopqrstuvwxyz123456",
+            "aws " + "AKIA" + "IOSFODNN7EXAMPLE",
+            "slack " + "xoxb" + "-123456789012-abcdefghijklmnop",
+            "jwt " + "eyJ" + "hbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.signatureABC123",
+            "-----BEGIN PRIVATE KEY-----",
+            "api_key = abcdefghijklmnopqrstuvwxyz123456",
+        ]
+        for secretInput in secretInputs {
+            show("secret input", secretInput)
+            let secretMatches = phoneDetector.detect(in: secretInput)
+            show("matches", secretMatches.map { "\($0.kind)=\($0.ruleText ?? $0.matched)" }.joined(separator: ", "))
+            expect(secretMatches.contains { $0.kind.contains("token") || $0.kind.contains("key") || $0.kind == "jwt" || $0.kind == "private-key" }, "detects common developer secret")
+        }
+
+        let multipleGitHubSecrets = "tokens " + "ghp" + "_abcdefghijklmnopqrstuvwxyz123456 and " + "ghp" + "_123456abcdefghijklmnopqrstuvwxyz"
+        let multipleGitHubMatches = phoneDetector.detect(in: multipleGitHubSecrets).filter { $0.kind == "github-token" }
+        show("multiple same-kind secrets", String(multipleGitHubMatches.count))
+        expect(multipleGitHubMatches.count == 2, "detects multiple same-kind secrets")
 
         let ssnDetector = PIIDetector(patterns: PatternConfig(phone: false, email: false, ssn: true))
         let validSSNInput = "paperwork shows 123-45-6789"
@@ -254,7 +276,53 @@ struct StreamGuardTestRunner {
         show("decision", blurAllEngine.lastDecision.reason)
         expect(blurAllEngine.stateMachine.state == .armed, "blur-all blocks harmless OCR text")
         expect(blurTransition?.current == .armed, "blur-all transition")
-        expect(OCRGuardMode.blurAll.warning?.contains("Buggy") == true, "blur-all exposes buggy warning")
+        expect(OCRGuardMode.blurAll.warning?.contains("overblocks") == true, "blur-all warning is diagnostics-only wording")
+
+
+        section("User-facing settings defaults")
+
+        let partialSettingsJSON = """
+        { "userSettings": { "sensitivity": "balanced" } }
+        """.data(using: .utf8)!
+        let partialSettings = try? JSONDecoder().decode(BlocklistConfig.self, from: partialSettingsJSON)
+        expect(partialSettings?.userSettings.protectionMode == .both, "partial userSettings decode uses defaults")
+        expect(partialSettings?.userSettings.sensitivity == .balanced, "partial userSettings preserves explicit field")
+
+        let advancedJSON = """
+        {
+          "patterns": { "phone": true, "email": true, "ssn": false, "secrets": false, "cards": true, "nationalIDs": false },
+          "filtering": { "mode": "whitelist", "whitelist": [], "blacklist": [], "blurAllMinimumCharacters": 2 },
+          "userSettings": { "safeText": ["safe one"], "sensitiveText": ["secret one"] }
+        }
+        """.data(using: .utf8)!
+        let advancedConfig = try? JSONDecoder().decode(BlocklistConfig.self, from: advancedJSON)
+        expect(advancedConfig?.filtering.mode == .whitelist, "advanced filtering mode is preserved")
+        expect(advancedConfig?.patterns.secrets == false && advancedConfig?.patterns.cards == true, "advanced pattern flags are preserved")
+        expect(advancedConfig?.filtering.whitelist.contains { $0.managedByUserSettings && $0.text == "safe one" } == true, "user settings safe text is marked managed")
+        var reconciled = advancedConfig ?? BlocklistConfig.default
+        reconciled.userSettings.safeText = []
+        reconciled.applyUserSettingsCompatibility()
+        expect(!reconciled.filtering.whitelist.contains { $0.managedByUserSettings }, "deleted setup safe text removes managed entries")
+
+        let defaultConfig = BlocklistConfig.default
+        expect(defaultConfig.userSettings.protectionMode == .both, "default protection mode is both")
+        expect(defaultConfig.userSettings.sensitivity == .safe, "default sensitivity is Safe")
+        expect(defaultConfig.patterns.email && defaultConfig.patterns.phone && defaultConfig.patterns.secrets, "email, phone, secrets enabled")
+        expect(!defaultConfig.patterns.ssn && !defaultConfig.patterns.cards && !defaultConfig.patterns.nationalIDs, "SSN/cards/national IDs off by default")
+        let missingScreen = SetupReadiness(screenRecordingGranted: false, obs: OBSReadiness(state: .ready, message: "ready"), protectionMode: .both)
+        expect(!missingScreen.canStartProtection, "missing Screen Recording blocks protection")
+        let missingOBS = SetupReadiness(screenRecordingGranted: true, obs: OBSReadiness(state: .protectedSceneMissing, message: "missing"), protectionMode: .both)
+        expect(!missingOBS.canStartProtection, "missing OBS readiness blocks OBS protection")
+        let localOnly = SetupReadiness(screenRecordingGranted: true, obs: OBSReadiness(state: .disconnected, message: "missing"), protectionMode: .localOverlay)
+        expect(localOnly.canStartProtection, "local overlay can start without OBS")
+        var balanced = BlocklistConfig.default
+        balanced.userSettings.sensitivity = .balanced
+        balanced.applyUserSettingsCompatibility()
+        expect(balanced.hysteresis.triggerFrames >= 2, "Balanced requires repeat before arming")
+        var safe = BlocklistConfig.default
+        safe.userSettings.sensitivity = .safe
+        safe.applyUserSettingsCompatibility()
+        expect(safe.hysteresis.triggerFrames == 1, "Safe blocks first likely leak")
 
         section("Text merge buffer")
         let buffer = TextMergeBuffer(windowSeconds: 5)
@@ -291,6 +359,34 @@ struct StreamGuardTestRunner {
         show("state", phoneEngine.stateMachine.state.rawValue)
         expect(phoneEngine.stateMachine.state == .armed, "split-frame phone via compact merge")
         expect(splitTransition?.current == .armed, "split-frame phone transition")
+
+
+        section("Privacy and packaging constants")
+        expect(WebPrivacyPolicy.defaultBindHost == "127.0.0.1", "status server bind host is loopback")
+
+        expect(WebPrivacyPolicy.requiredLocalEndpointUsesAnyPort, "status server required local endpoint uses any port")
+
+        let listenerResult: Bool = {
+            let parameters = NWParameters.tcp
+            parameters.allowLocalEndpointReuse = true
+            parameters.requiredLocalEndpoint = NWEndpoint.hostPort(
+                host: .ipv4(IPv4Address(WebPrivacyPolicy.defaultBindHost)!),
+                port: .any
+            )
+            do {
+                let listener = try NWListener(using: parameters, on: .any)
+                listener.start(queue: DispatchQueue(label: "dev.pcstyle.stream-guard.test-listener"))
+                listener.cancel()
+                return true
+            } catch {
+                show("loopback listener error", error.localizedDescription)
+                return false
+            }
+        }()
+        expect(listenerResult, "loopback required endpoint can bind with listener port")
+
+        let encodedConfig = (try? JSONEncoder().encode(BlocklistConfig.default)).flatMap { String(data: $0, encoding: .utf8) } ?? ""
+        expect(!encodedConfig.lowercased().contains("password"), "OBS password is not part of config JSON")
 
         section("Config hot reload")
         let tempDir = FileManager.default.temporaryDirectory

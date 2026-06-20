@@ -6,6 +6,10 @@
     <string>dev.pcstyle.stream-guard</string>
     <key>CFBundleName</key>
     <string>Stream Guard</string>
+    <key>CFBundleExecutable</key>
+    <string>StreamGuard</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
     <key>CFBundleVersion</key>
     <string>1.0.0</string>
     <key>CFBundleShortVersionString</key>
