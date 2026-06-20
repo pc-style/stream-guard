@@ -16,6 +16,8 @@ final class OBSWebSocketClient: @unchecked Sendable {
     private var pendingActions: [() -> Void] = []
     private var readinessCompletion: ((OBSReadiness) -> Void)?
     private var readinessTestInProgress = false
+    private var connectionGeneration = 0
+    private var readinessTestGeneration = 0
     private(set) var lastReadiness = OBSReadiness()
 
     init(config: OBSConfig, passwordProvider: @escaping () -> String? = { KeychainStore.shared.obsPassword() }) {
@@ -47,14 +49,20 @@ final class OBSWebSocketClient: @unchecked Sendable {
         queue.async {
             self.readinessCompletion = completion
             self.readinessTestInProgress = true
+            self.readinessTestGeneration += 1
+            let testGeneration = self.readinessTestGeneration
             self.disconnectLocked()
-            self.connectIfNeededLocked()
-            self.queue.asyncAfter(deadline: .now() + 5) { [weak self] in
-                guard let self, self.readinessTestInProgress, !self.identified else { return }
-                self.completeReadiness(OBSReadiness(state: .disconnected, message: "Timed out waiting for OBS websocket hello", testedAt: Date()))
+            let testTask = self.connectIfNeededLocked()
+            self.queue.asyncAfter(deadline: .now() + 5) { [weak self, weak testTask] in
+                guard let self,
+                      self.readinessTestInProgress,
+                      self.readinessTestGeneration == testGeneration,
+                      !self.identified,
+                      self.webSocket === testTask else { return }
+                self.completeReadiness(OBSReadiness(state: .disconnected, message: "Timed out waiting for OBS websocket hello", testedAt: Date()), testGeneration: testGeneration)
                 self.disconnectLocked()
             }
-            self.runWhenReady { self.verifyProtectedScene() }
+            self.runWhenReady { self.verifyProtectedScene(testGeneration: testGeneration) }
         }
     }
 
@@ -89,21 +97,27 @@ final class OBSWebSocketClient: @unchecked Sendable {
         }
     }
 
-    private func connectIfNeededLocked() {
-        guard config.enabled, webSocket == nil else { return }
+    @discardableResult
+    private func connectIfNeededLocked() -> URLSessionWebSocketTask? {
+        guard config.enabled else { return nil }
+        if let webSocket { return webSocket }
         guard let url = URL(string: "ws://\(config.host):\(config.port)") else {
             completeReadinessIfTesting(OBSReadiness(state: .disconnected, message: "Invalid OBS websocket URL", testedAt: Date()))
-            return
+            return nil
         }
         setReadiness(.disconnected, "Connecting to OBS…")
+        connectionGeneration += 1
+        let generation = connectionGeneration
         let task = session.webSocketTask(with: url)
         webSocket = task
         connected = true
         task.resume()
-        receiveLoop()
+        receiveLoop(task: task, generation: generation)
+        return task
     }
 
     private func disconnectLocked() {
+        connectionGeneration += 1
         webSocket?.cancel(with: .goingAway, reason: nil)
         webSocket = nil
         connected = false
@@ -139,39 +153,39 @@ final class OBSWebSocketClient: @unchecked Sendable {
         }
     }
 
-    private func verifyProtectedScene() {
+    private func verifyProtectedScene(testGeneration: Int? = nil) {
         setReadiness(.authenticated, "OBS authenticated; verifying protected scene…")
         sendRequest(type: "GetSceneList") { [weak self] result in
             guard let self else { return }
             guard result.ok, let scenes = result.data?["scenes"] as? [[String: Any]] else {
-                self.completeReadiness(OBSReadiness(state: .disconnected, message: result.comment ?? "Could not query OBS scenes", testedAt: Date()))
+                self.completeReadiness(OBSReadiness(state: .disconnected, message: result.comment ?? "Could not query OBS scenes", testedAt: Date()), testGeneration: testGeneration)
                 return
             }
             let names = Set(scenes.compactMap { $0["sceneName"] as? String })
             guard names.contains(self.config.protectedScene) else {
-                self.completeReadiness(OBSReadiness(state: .protectedSceneMissing, message: "Protected delayed scene ‘\(self.config.protectedScene)’ is missing", testedAt: Date()))
+                self.completeReadiness(OBSReadiness(state: .protectedSceneMissing, message: "Protected delayed scene ‘\(self.config.protectedScene)’ is missing", testedAt: Date()), testGeneration: testGeneration)
                 return
             }
-            self.verifyBlackoutSource()
+            self.verifyBlackoutSource(testGeneration: testGeneration)
         }
     }
 
-    private func verifyBlackoutSource() {
+    private func verifyBlackoutSource(testGeneration: Int? = nil) {
         sendRequest(type: "GetSceneItemId", data: ["sceneName": config.protectedScene, "sourceName": config.blackoutSource]) { [weak self] result in
             guard let self else { return }
             guard result.ok, result.data?["sceneItemId"] is Int else {
-                self.completeReadiness(OBSReadiness(state: .blackoutSourceMissing, message: "Blackout source ‘\(self.config.blackoutSource)’ is missing in ‘\(self.config.protectedScene)’", testedAt: Date()))
+                self.completeReadiness(OBSReadiness(state: .blackoutSourceMissing, message: "Blackout source ‘\(self.config.blackoutSource)’ is missing in ‘\(self.config.protectedScene)’", testedAt: Date()), testGeneration: testGeneration)
                 return
             }
-            self.testBlackoutToggle()
+            self.testBlackoutToggle(testGeneration: testGeneration)
         }
     }
 
-    private func testBlackoutToggle() {
+    private func testBlackoutToggle(testGeneration: Int? = nil) {
         setBlackoutSource(enabled: true) { [weak self] enabled in
             guard let self else { return }
             guard enabled else {
-                self.completeReadiness(OBSReadiness(state: .testBlackoutFailed, message: "Could not enable blackout source", testedAt: Date()))
+                self.completeReadiness(OBSReadiness(state: .testBlackoutFailed, message: "Could not enable blackout source", testedAt: Date()), testGeneration: testGeneration)
                 return
             }
             self.queue.asyncAfter(deadline: .now() + 0.35) {
@@ -179,7 +193,7 @@ final class OBSWebSocketClient: @unchecked Sendable {
                     let readiness = disabled
                         ? OBSReadiness(state: .ready, message: "OBS ready: protected scene and blackout source verified", testedAt: Date())
                         : OBSReadiness(state: .testBlackoutFailed, message: "Could not disable blackout source after test", testedAt: Date())
-                    self.completeReadiness(readiness)
+                    self.completeReadiness(readiness, testGeneration: testGeneration)
                 }
             }
         }
@@ -199,11 +213,11 @@ final class OBSWebSocketClient: @unchecked Sendable {
         sendRaw(payload, webSocket: webSocket)
     }
 
-    private func receiveLoop() {
-        guard let webSocket else { return }
-        webSocket.receive { [weak self] result in
-            guard let self else { return }
+    private func receiveLoop(task: URLSessionWebSocketTask, generation: Int) {
+        task.receive { [weak self, weak task] result in
+            guard let self, let task else { return }
             self.queue.async {
+                guard self.isActive(task: task, generation: generation) else { return }
                 switch result {
                 case .success(let message):
                     switch message {
@@ -211,7 +225,7 @@ final class OBSWebSocketClient: @unchecked Sendable {
                     case .data(let data): if let text = String(data: data, encoding: .utf8) { self.handleMessage(text) }
                     @unknown default: break
                     }
-                    self.receiveLoop()
+                    self.receiveLoop(task: task, generation: generation)
                 case .failure(let error):
                     let readiness = OBSReadiness(state: .disconnected, message: "OBS websocket disconnected: \(error.localizedDescription)", testedAt: Date())
                     self.setReadiness(readiness.state, readiness.message)
@@ -220,6 +234,10 @@ final class OBSWebSocketClient: @unchecked Sendable {
                 }
             }
         }
+    }
+
+    private func isActive(task: URLSessionWebSocketTask, generation: Int) -> Bool {
+        webSocket === task && connectionGeneration == generation
     }
 
     private func handleMessage(_ text: String) {
@@ -269,7 +287,10 @@ final class OBSWebSocketClient: @unchecked Sendable {
         lastReadiness = OBSReadiness(state: state, message: message, testedAt: Date())
     }
 
-    private func completeReadiness(_ readiness: OBSReadiness) {
+    private func completeReadiness(_ readiness: OBSReadiness, testGeneration: Int? = nil) {
+        if let testGeneration, testGeneration != readinessTestGeneration {
+            return
+        }
         lastReadiness = readiness
         readinessTestInProgress = false
         let completion = readinessCompletion
@@ -297,9 +318,11 @@ final class OBSWebSocketClient: @unchecked Sendable {
             completeReadinessIfTesting(OBSReadiness(state: .testBlackoutFailed, message: "Could not encode OBS websocket request", testedAt: Date()))
             return
         }
-        webSocket.send(.string(text)) { [weak self] error in
-            guard let error else { return }
+        let generation = connectionGeneration
+        webSocket.send(.string(text)) { [weak self, weak webSocket] error in
+            guard let error, let webSocket else { return }
             self?.queue.async {
+                guard self?.isActive(task: webSocket, generation: generation) == true else { return }
                 let readiness = OBSReadiness(state: .disconnected, message: "OBS websocket send failed: \(error.localizedDescription)", testedAt: Date())
                 self?.setReadiness(readiness.state, readiness.message)
                 self?.completeReadinessIfTesting(readiness)
