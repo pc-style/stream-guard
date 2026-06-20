@@ -65,6 +65,8 @@ public struct PIIDetector: Sendable {
         if patterns.email {
             if let match = detectEmail(in: lowered) {
                 results.append(MatchResult(kind: "email", matched: match, score: 1, ruleText: "email"))
+            } else if let match = detectSpacedEmail(in: lowered) {
+                results.append(MatchResult(kind: "email", matched: match, score: 1, ruleText: "email"))
             }
         }
         if patterns.ssn || patterns.nationalIDs {
@@ -191,6 +193,19 @@ public struct PIIDetector: Sendable {
         guard let match = regex.firstMatch(in: text, range: range),
               let swiftRange = Range(match.range, in: text) else { return nil }
         return String(text[swiftRange])
+    }
+
+    private func detectSpacedEmail(in text: String) -> String? {
+        let pattern = #"[a-z0-9._%+-]+\s*@\s*[a-z0-9-]+(?:\s*\.\s*[a-z]{2,})+"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        guard let match = regex.firstMatch(in: text, range: range),
+              let swiftRange = Range(match.range, in: text) else { return nil }
+
+        let candidate = String(text[swiftRange])
+        guard candidate.contains(where: \.isWhitespace) else { return nil }
+        let normalizedCandidate = candidate.replacingOccurrences(of: #"\s+"#, with: "", options: .regularExpression)
+        return detectEmail(in: normalizedCandidate) != nil ? candidate : nil
     }
 
     private func detectSSN(in text: String) -> String? {
