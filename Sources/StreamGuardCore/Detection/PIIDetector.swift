@@ -196,7 +196,7 @@ public struct PIIDetector: Sendable {
     }
 
     private func detectSpacedEmail(in text: String) -> String? {
-        let pattern = #"(?<![a-z0-9._%+-])[a-z0-9._%+-]+\s*@\s*[a-z0-9-]+(?:\s*\.\s*[a-z]{2,8})(?!\s*\.\s*[a-z])"#
+        let pattern = #"(?<![a-z0-9._%+-])[a-z0-9._%+-]+\s*@\s*[a-z0-9-]+(?:\s*\.\s*[a-z]{2,})(?!\s*\.\s*[a-z])"#
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
         let range = NSRange(text.startIndex..<text.endIndex, in: text)
         guard let match = regex.firstMatch(in: text, range: range),

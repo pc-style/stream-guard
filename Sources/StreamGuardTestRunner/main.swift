@@ -62,6 +62,7 @@ struct StreamGuardTestRunner {
             ("email leak @ test.com here", "leak @ test.com"),
             ("email leak@test . com here", "leak@test . com"),
             ("email leak @ test . com here", "leak @ test . com"),
+            ("email leak @ test.technology here", "leak @ test.technology"),
         ]
         for (spacedEmailInput, expectedMatch) in spacedEmailCases {
             show("input", spacedEmailInput)
