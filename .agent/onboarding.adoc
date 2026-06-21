@@ -12,7 +12,7 @@ Read this document before starting any work in this repository.
 
 [source,bash]
 ----
-# 1. Read repo guidance first
+# 1. Read fixed repo guidance first
 cat AGENTS.md
 cat README.md
 cat docs/ARCHITECTURE.md
@@ -25,11 +25,14 @@ cat .agent/session.adoc
 #        aden grep "pattern"
 #        aden locate --symbol <name>
 #        aden asm --from <anchor>
+#        aden query --backlinks <anchor>
+#        aden query --impact <anchor>
 
 # 3. Make the smallest safe change
 #    Keep Command Line Tools compatibility; do not add Xcode-only requirements.
 
 # 4. Verify with repo-native commands
+aden check . --severity Forbid
 make build
 make test
 
@@ -40,7 +43,7 @@ make test
 printf '| %s | %s | %s | %s | %s | %s |\n'   "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "codex" "<task>" "<files>" "completed" "High" >> .agent/session.adoc
 ----
 
-== Context Tools (if Aden is installed)
+== Context Tools
 
 Aden builds a traversable knowledge graph from this codebase so you can
 query relationships and retrieve focused context without reading every file.
@@ -68,8 +71,9 @@ query relationships and retrieve focused context without reading every file.
 |`aden check . --severity Forbid`
 |===
 
-Aden helps with navigation, not proof. Always confirm real behavior with the
-repo's own build/test commands.
+Aden is the preferred navigation tool for this codebase. Use it for code search
+and context assembly, then verify real behavior with the repository's own
+build/test commands.
 
 == Project Conventions
 
