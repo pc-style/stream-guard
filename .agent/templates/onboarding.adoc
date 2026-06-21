@@ -37,8 +37,8 @@ make build
 make test
 
 # 5. Log your session
-printf '| %s | %s | %s | %s | %s | %s |
-'   "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "<your-id>" "<task>" "<files>" "completed" "High" >> .agent/session.adoc
+printf '| %s | %s | %s | %s | %s | %s |\n' \
+  "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "<your-id>" "<task>" "<files>" "completed" "High" >> .agent/session.adoc
 ----
 
 == Context Tools
@@ -73,7 +73,7 @@ Aden is the preferred navigation tool for this codebase. Use it for code search 
 
 == Project Conventions
 
-Read `.agent/constraints.adoc` for hard rules specific to this project.
+Read `.agent/templates/constraints.adoc` for reusable hard-rule scaffolding.
 
 == Session Protocol
 

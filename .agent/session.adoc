@@ -12,6 +12,7 @@ Every agent that modifies files must append an entry here before completing.
 |===
 |Timestamp |Agent |Task |Files |Status |Confidence
 |2026-06-21T18:05:58Z |codex |Daily maintainer hygiene: ignore rules and agent docs cleanup |AGENTS.md, .gitignore, .adenignore, .agent/context.adoc, .agent/onboarding.adoc |completed |High
+|2026-06-21T18:10:01Z |codex |Fix PR #8 agent-doc follow-up mismatches |.agent/README.adoc, .agent/templates/onboarding.adoc, .agent/templates/protocol.adoc |completed |High
 |===
 
 == How to Append
@@ -34,4 +35,3 @@ Confidence: High (>0.9), Medium (0.7–0.9), Low (<0.7 — include blocker in ta
 
 . <<agent-context>>
 . <<agent-onboarding>>
-| 2026-06-21T18:10:01Z | codex | Fix PR #8 agent-doc follow-up mismatches | .agent/README.adoc, .agent/templates/onboarding.adoc, .agent/templates/protocol.adoc | completed | High |

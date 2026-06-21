@@ -17,7 +17,7 @@ IMPORTANT: If you are an AI agent finding this file, your canonical entry point 
 == Templates
 - `templates/plan.adoc` — initiative specification
 - `templates/module.adoc` — component contract
-- `templates/context.adoc` — shared agent memory
+- `context.adoc` — shared agent memory
 - `templates/aden-guide.adoc` — command decision tree and token economy
 - `templates/onboarding.adoc` — session locking and validation protocol
 - `templates/constraints.adoc` — never-commit rules and security posture

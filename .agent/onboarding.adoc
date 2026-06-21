@@ -73,7 +73,7 @@ repo's own build/test commands.
 
 == Project Conventions
 
-Read `.agent/constraints.adoc` for hard rules specific to this project.
+Read `.agent/templates/constraints.adoc` for reusable hard-rule scaffolding.
 
 == Session Protocol
 

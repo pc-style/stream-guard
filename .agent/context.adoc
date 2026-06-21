@@ -65,7 +65,7 @@ code, docs, and tests in this repository.
 == Next Steps
 
 . Read `.agent/onboarding.adoc` before your first session.
-. Read `.agent/constraints.adoc` to know what not to do.
+. Read `.agent/templates/constraints.adoc` for reusable hard-rule scaffolding.
 . Append your session entry to `.agent/session.adoc` before starting work.
 
 == Related Documents
