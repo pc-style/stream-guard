@@ -1,0 +1,23 @@
+:module: {module}
+:path: {path}
+:lang: {lang}
+
+[[mod-{module}]]
+= module::{module}
+
+== Objective
+{objective}
+
+== Signature
+|===
+|Type |Kind |Description
+
+|{type}|{kind}|{description}
+|===
+
+== Invariants
+{invariants}
+
+== Agent Notes
+agent-note::{status}
+{notes}

@@ -1,0 +1,33 @@
+[[agent-readme]]
+= .agent Directory
+
+This directory contains agent-facing templates and standards for this repository.
+
+IMPORTANT: If you are an AI agent finding this file, your canonical entry point is `AGENTS.md` in the project root. It defines the reading order and command conventions before you enter this directory.
+
+== Agent Reading Order
+
+. `AGENTS.md` (project root) — Manifest and redirect
+. `onboarding.adoc` — How to begin work safely
+. `constraints.adoc` — Hard negative constraints
+. `templates/aden-guide.adoc` — Full command reference
+. `context.adoc` — Project identity and codebase-specific patterns
+. `session.adoc` — Current active sessions (check before working)
+
+== Templates
+- `templates/plan.adoc` — initiative specification
+- `templates/module.adoc` — component contract
+- `templates/context.adoc` — shared agent memory
+- `templates/aden-guide.adoc` — command decision tree and token economy
+- `templates/onboarding.adoc` — session locking and validation protocol
+- `templates/constraints.adoc` — never-commit rules and security posture
+- `templates/protocol.adoc` — session coordination for parallel agents
+
+== Usage
+Run `aden init` to scaffold these templates into any repository.
+
+== Navigation
+
+. <<agent-readme>>
+. <<agent-context>>
+. <<agent-session>>

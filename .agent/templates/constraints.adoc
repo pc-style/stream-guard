@@ -1,0 +1,45 @@
+:proj: {project}
+
+[[constraints]]
+= Negative Constraints: What AI Must Never Do
+
+== File System
+
+. Never write outside the working directory without explicit user permission.
+. Never delete files unless explicitly requested.
+. Never commit `.aden/` or secret artifacts.
+. Never write private keys, tokens, or credentials to any file in the repo.
+. Never traverse symlinks (`entry.file_type().is_symlink()`).
+
+== Code Quality
+
+. Never suppress warnings without a `// SAFETY:` or `// REVIEW:` comment.
+. Never use `unwrap()` or `expect()` on user-provided or external data.
+. Never leave `TODO` comments without filing a task.
+. Never commit code that fails the project's test suite.
+
+== Agent Workflow (Mandatory)
+
+. **Never** modify code without checking session log for conflicts (`cat .agent/session.adoc`).
+. **Never** declare a task complete if `aden check .` reports broken references.
+. **Never** edit contracts by hand — always regenerate with `aden gen`.
+. **Never** commit if `aden ci-check .` fails any gate.
+. **Never** generate a contract without reviewing it for accuracy.
+
+== Documentation
+
+. Never create `.adoc` files without a `[[unique-anchor]]`.
+. Never use YAML frontmatter; only AsciiDoc `:key: value` attributes.
+. Never duplicate glossary terms across files; use `<<glossary.adoc#term>>`.
+. Never emit broken `<<references>>`; run `aden check .` after document edits.
+
+== Security & Privacy
+
+. Never expose secrets in contracts. Contracts are private build artifacts.
+. Never share the `.aden/` directory.
+. Never include internal URLs, emails, or build server names in public docs.
+
+== Related Documents
+
+. <<agent-context>>
+. <<agent-onboarding>>

@@ -1,0 +1,87 @@
+:proj: {project}
+
+[[agent-onboarding-template]]
+= Agent Onboarding — {project}
+
+[IMPORTANT]
+====
+Read this document before starting any work in this repository.
+====
+
+== Quick Start
+
+[source,bash]
+----
+# 1. Read shared context
+cat .agent/context.adoc    # Project constraints and conventions
+cat .agent/session.adoc    # Who else is working and on what?
+
+# 2. Understand the codebase before changing it
+#    Use whatever tools are available to you:
+#    - Read source files and existing tests
+#    - Use aden (if installed) for graph-based context assembly:
+#        aden ask "What does <module> do?"
+#        aden asm --from <anchor> --depth 2
+#        aden locate --symbol <name> .
+
+# 3. Make your change
+#    Run the project's own tests and build before committing.
+
+# 4. Log your session
+echo "| $(date -u +%Y-%m-%dT%H:%M:%SZ) | <your-id> | <task> | <files> | completed |" >> .agent/session.adoc
+----
+
+== Context Tools (if aden is installed)
+
+Aden builds a traversable knowledge graph from this codebase so you can
+query relationships and retrieve focused context without reading every file.
+
+[cols="1,2"]
+|===
+|Goal |Command
+
+|Ask a question about the codebase
+|`aden ask "<question>"`
+
+|Find where a symbol is defined
+|`aden locate --symbol <name> .`
+
+|Search for a keyword
+|`aden search "<term>" .`
+
+|Get focused context for a topic
+|`aden asm --from <anchor> --depth 2`
+
+|Explore graph dependencies
+|`aden query --from <anchor> --depth 2`
+
+|List all indexed anchors
+|`aden list .`
+
+|Check knowledge graph health
+|`aden status .`
+|===
+
+Aden is a *read* tool for this codebase — it does not dictate your workflow,
+language, or CI process. Use it when it helps; ignore it when it does not.
+
+== Project Conventions
+
+Read `.agent/constraints.adoc` for hard rules specific to this project.
+Read `.agent/glossary.adoc` for project-specific terminology.
+
+== Session Protocol
+
+Before you start:
+
+. Append a row to `.agent/session.adoc` with your task and status `in_progress`.
+
+When you finish:
+
+. Update your row to `completed` and note what changed.
+. This gives other agents and humans visibility without coordination overhead.
+
+== Related Documents
+
+. <<agent-context>>
+. <<agent-session>>

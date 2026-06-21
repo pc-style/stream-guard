@@ -1,0 +1,93 @@
+:proj: stream-guard
+
+[[agent-onboarding]]
+= Agent Onboarding — stream-guard
+
+[IMPORTANT]
+====
+Read this document before starting any work in this repository.
+====
+
+== Quick Start
+
+[source,bash]
+----
+# 1. Read repo guidance first
+cat AGENTS.md
+cat README.md
+cat docs/ARCHITECTURE.md
+cat .agent/context.adoc
+cat .agent/session.adoc
+
+# 2. Understand the codebase before changing it
+#    Prefer Aden for navigation when available:
+#        aden ask "How does <feature> work?"
+#        aden grep "pattern"
+#        aden locate --symbol <name>
+#        aden asm --from <anchor>
+
+# 3. Make the smallest safe change
+#    Keep Command Line Tools compatibility; do not add Xcode-only requirements.
+
+# 4. Verify with repo-native commands
+make build
+make test
+
+# 5. Only run live OCR checks intentionally
+#    make live-test   # requires Screen Recording permission and a visible capture window
+
+# 6. Log your session
+printf '| %s | %s | %s | %s | %s | %s |\n'   "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "codex" "<task>" "<files>" "completed" "High" >> .agent/session.adoc
+----
+
+== Context Tools (if Aden is installed)
+
+Aden builds a traversable knowledge graph from this codebase so you can
+query relationships and retrieve focused context without reading every file.
+
+[cols="1,2"]
+|===
+|Goal |Command
+
+|Ask a question about the codebase
+|`aden ask "<question>"`
+
+|Find where a symbol is defined
+|`aden locate --symbol <name>`
+
+|Search for a keyword with structure context
+|`aden grep "pattern"`
+
+|Get focused context for a topic
+|`aden asm --from <anchor>`
+
+|Explore graph backlinks / impact
+|`aden query --backlinks <anchor>` / `aden query --impact <anchor>`
+
+|Check knowledge graph health
+|`aden check . --severity Forbid`
+|===
+
+Aden helps with navigation, not proof. Always confirm real behavior with the
+repo's own build/test commands.
+
+== Project Conventions
+
+Read `.agent/constraints.adoc` for hard rules specific to this project.
+
+== Session Protocol
+
+Before you start:
+
+. Read `.agent/session.adoc` for overlapping work.
+. Append a row with your task and status.
+
+When you finish:
+
+. Append or update a row noting what changed and whether verification passed.
+. Keep entries concise and factual so later maintainers can scan them quickly.
+
+== Related Documents
+
+. <<agent-context>>
+. <<agent-session>>

@@ -1,0 +1,78 @@
+:proj: {project}
+:date: {date}
+:author: {author}
+
+[[kickoff-{idea}]]
+= Kickoff: {idea}
+
+[TIP]
+====
+This document is the gateway. Do not write code until every section below is filled.
+If you cannot answer a section, you do not yet understand the problem well enough to build.
+====
+
+== The Problem (Not the Solution)
+
+[WARNING]
+====
+Most projects fail because they solve the wrong problem. Describe the problem in one paragraph before mentioning any technology.
+====
+
+. Who has this problem?
+. What do they do today without your solution?
+. Why is that painful enough to change?
+. What is the cost of doing nothing?
+
+== The Hypothesis
+
+. We believe that ____________.
+. We will know we are right when ____________.
+. We will know we are wrong when ____________.
+. If we are wrong, the pivot is ____________.
+
+== Success Criteria
+
+[cols="1,1,1"]
+|===
+|Metric |Target |Measurement Method
+
+| | | |
+
+|===
+
+== Non-Goals (What We Are Explicitly NOT Doing)
+
+. Non-goal 1:
+. Non-goal 2:
+. Non-goal 3:
+
+== Constraints
+
+. Time: Must ship by ____________.
+. Resources: ____________ person-weeks available.
+. Dependencies: Cannot proceed without ____________.
+. Regulatory / Legal: Must comply with ____________.
+
+== Risks
+
+[cols="1,2,1,2,1"]
+|===
+|Risk |Mitigation |Likelihood |Impact |Owner
+
+| | | | | |
+
+|===
+
+== Stakeholders
+
+[cols="1,1,2"]
+|===
+|Role |Name |Decision Authority
+
+| | | |
+
+|===
+
+== Next Step
+
+Write a design document from this kickoff.

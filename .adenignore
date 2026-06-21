@@ -1,0 +1,35 @@
+# Aden Ignore — Security-first defaults
+# Contracts are build artifacts; never commit them.
+contracts/
+.aden/
+target/
+.git/
+
+# Secrets (never process)
+*.pem
+*.key
+*.p8
+*.env
+.env.local
+.env.*
+
+# Editor debris
+*.swp
+*.swo
+.vscode/
+.idea/
+
+# Build outputs (cargo/node/swift)
+node_modules/
+dist/
+build/
+.build/
+.swiftpm/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Local agent/workflow scratch space
+.codex-maintenance/
+.stream-guard-test-logs/

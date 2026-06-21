@@ -1,0 +1,130 @@
+:proj: {project}
+:research-topic: TBD
+:data-source: TBD
+:confidence: TBD
+:last-verified: TBD
+:reviewer: TBD
+
+[[research-{topic}]]
+= Research Findings: {topic}
+
+[sidebar]
+.Research Integrity Statement
+****
+This document follows structured attribution and evidence grading.
+Every claim is sourced. Speculation is explicitly flagged.
+No claim is accepted without evidence.
+****
+
+== Source Registry
+
+[cols="1,2,1,1,1,1"]
+|===
+|ID |Source |Date |URL / DOI |Trust Level |Sanitation
+
+|[A] | | | | |
+|[B] | | | | |
+|[C] | | | | |
+
+|===
+
+=== Trust Level Definitions
+
+* **Verified** — Original source, peer-reviewed, code/artifact reproducible
+* **Trusted** — Reputable outlet, known author, corroborated elsewhere
+* **Anecdotal** — Forum, blog, interview; single point of failure
+* **Suspect** — Conflicts with verified sources, no evidence
+* **Debunked** — Contradicted by evidence; included for completeness
+
+=== Sanitation Flags
+
+* **[cite]** — Properly cited, traceable
+* **[quote]** — Direct quote, needs context
+* **[paraphrase]** — Rewritten, risk of drift
+* **[speculation]** — Inference, not evidence
+* **[rumor]** — Unsubstantiated
+* **[deprecated]** — Outdated, newer info exists
+
+== Extracted Claims
+
+[cols="1,2,1,1,1"]
+|===
+|Claim |Evidence |Confidence |Source Ref |Sanitation
+
+| | | | | |
+
+|===
+
+=== Confidence Scale
+
+|===
+|Level |Meaning
+
+|Certain |Reproducible, multi-source, no contradiction
+|Likely |Strong single-source evidence, plausible
+|Possible |Weak evidence, plausible but unverified
+|Unlikely |Contradicted by evidence, special pleading
+|False |Directly contradicted by evidence
+
+|===
+
+== Cross-Reference Map
+
+[cols="1,2,2"]
+|===
+|Claim ID |Supports |Contradicts
+
+|A |B, C |D (partial)
+
+|===
+
+== Gaps & Blockers
+
+[WARNING]
+====
+What was NOT found? What would invalidate the conclusion?
+====
+
+. Missing:
+. Would invalidate:
+. Confirmation bias risk:
+
+== Red Flags
+
+[CAUTION]
+====
+Patterns that suggest bias, misinformation, or low-quality sourcing.
+====
+
+. Circular citation:
+. Single-source dependency:
+. Emotional language / loaded terms:
+. Paywalled / non-reproducible evidence:
+. Conflicts of interest:
+
+== Confidence Summary
+
+[cols="1,2,1"]
+|===
+|Metric |Value |Grade
+
+|Sources reviewed |0 |—
+|Verified sources |0 |—
+|Claims with evidence |0 |—
+|Contradictions found |0 |—
+|Single-source claims |0 |—
+|Overall confidence |{confidence} |TBD
+
+|===
+
+== Actionable Synthesis
+
+. **Decision:** Based on the above, what should be done?
+. **Risk:** What if the conclusion is wrong?
+. **Next research step:** What would raise confidence?
+
+== Related
+
+* Related research
+* Project Glossary
+* Style Guide

@@ -1,0 +1,100 @@
+[[secure-coding]]
+= Secure-Coding Constitution
+
+:status: active
+:author: aden
+
+This is aden's built-in secure-coding standard, scaffolded into every project by
+`aden init`. It is written in aden's own words from first principles and the
+lessons of aden's own security audit — it is original AGPL-licensed text, not a
+copy of any third-party guide. (For the external standards this aligns with —
+OWASP, MITRE CWE — and their licenses, see a project's `research/` material if
+present; those are kept as separate, separately-licensed references.)
+
+The rules are ordered by how often they actually bite a tool that ingests and
+processes untrusted input. Each is phrased as an enforceable directive.
+
+== Boundaries
+
+[[sc-confine-untrusted-paths]]
+=== Confine every path derived from untrusted input
+Any filesystem path that originates outside the program (a request argument, a
+config value, a path read from a parsed file) MUST be canonicalized and checked
+to live within an allowed root before it is opened, read, or written. Resolve
+`..` and symlinks first; reject, do not clamp. A program that walks untrusted
+trees MUST NOT follow symlinks out of the root.
+
+[[sc-data-is-data]]
+=== Keep data as data across every boundary
+Never build a command, query, path, or markup string by concatenating untrusted
+text. Pass arguments to subprocesses as an argument vector, never through a
+shell. Build structured output (JSON, etc.) with a serializer, never by string
+interpolation. When emitting untrusted text to a terminal, strip control and
+escape bytes first.
+
+[[sc-validate-at-the-edge]]
+=== Validate at the edge, once, on the trusted side
+Validate and bound untrusted input where it enters the trusted core — not
+deep in call stacks, and not on the caller's side where it can be bypassed.
+Prefer allow-lists to deny-lists. Validation is a layer, not the only defense:
+combine it with the structural protections above.
+
+== Resource safety
+
+[[sc-bound-resources]]
+=== Bound every resource that untrusted input can grow
+Inputs from untrusted sources MUST have ceilings: maximum file size, recursion
+depth, item counts, and a wall-clock timeout on any operation a caller can
+trigger. An attacker-shaped input must not be able to exhaust memory, disk, or
+time. Unbounded work on untrusted input is a denial-of-service defect.
+
+[[sc-never-slice-blind]]
+=== Never index or slice on an unchecked offset
+Arithmetic on sizes, offsets, and spans derived from untrusted input MUST be
+overflow-checked, and every slice/index MUST be proven in-range (or use a
+checked API that cannot panic). Treat a would-be out-of-range access as
+malformed input to skip, not a crash to propagate. Isolate per-unit work so one
+malformed input degrades to a skipped unit rather than aborting the batch.
+
+== Confidentiality
+
+[[sc-no-secret-ingest]]
+=== Do not ingest or persist secrets
+Credential material MUST NOT be persisted into any store, index, or artifact
+that downstream consumers (including LLM context) can read back. Screen both by
+location (known credential files/dirs) AND by content (structured provider
+tokens, private-key blocks) before persisting. Finding a secret to *fix* it is
+fine; *storing* it is not.
+
+[[sc-no-host-leakage]]
+=== Do not leak host or environment detail into output
+Absolute paths, usernames, home directories, and internal error detail MUST NOT
+appear in persisted or emitted output. Make paths relative to the project root;
+keep internal diagnostics out of user-facing errors and logs.
+
+[[sc-trust-your-own-cache]]
+=== Treat your own persisted state as untrusted on read
+Caches, stores, and serialized state can be corrupted or attacker-planted
+(e.g. a cloned repo carrying a pre-populated store). Deserialize with
+bounds-checked decoders that return errors rather than panic, and never
+deserialize into types that can execute code.
+
+== How aden applies this to itself
+
+Every rule above is a defense aden enforces in its own code, verified by its
+2026-05-30 security audit and coverage validation:
+
+- <<sc-confine-untrusted-paths>> — the MCP server canonicalizes and confines
+  every caller-supplied path to the project root.
+- <<sc-data-is-data>> — subprocess calls use an argv vector (no shell); JSON is
+  built with serde; terminal output strips escape bytes.
+- <<sc-bound-resources>> — parsing caps file size/depth/count; MCP calls time out.
+- <<sc-never-slice-blind>> — release builds enable overflow checks; parsing is
+  wrapped per-file so a malformed file is skipped, not fatal.
+- <<sc-no-secret-ingest>> — indexing screens files by path and by content and
+  refuses to store credential-bearing files.
+- <<sc-no-host-leakage>> — stored/emitted source paths are made root-relative.
+- <<sc-trust-your-own-cache>> — the store uses bounds-checked deserialization.
+
+A machine-checkable subset of these directives is intended to graduate into
+`aden check` over time (see ADR-002).
