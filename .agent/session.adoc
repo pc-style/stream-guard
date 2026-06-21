@@ -34,3 +34,4 @@ Confidence: High (>0.9), Medium (0.7–0.9), Low (<0.7 — include blocker in ta
 
 . <<agent-context>>
 . <<agent-onboarding>>
+| 2026-06-21T18:10:01Z | codex | Fix PR #8 agent-doc follow-up mismatches | .agent/README.adoc, .agent/templates/onboarding.adoc, .agent/templates/protocol.adoc | completed | High |

@@ -14,9 +14,9 @@ Multiple AI agents operating in parallel can:
 
 === Protocol Steps
 . **Read Phase**: Load `.agent/session.adoc` into memory
-. **Append Phase**: Add your entry to the in-memory representation
-. **Write Phase**: Atomically overwrite `session.adoc` with updated content
-. **Verify Phase**: Re-read `session.adoc` to confirm your entry exists
+. **Append Phase**: Add your new entry without removing prior rows
+. **Write Phase**: Save `session.adoc` while preserving the full append-only history
+. **Verify Phase**: Re-read `session.adoc` to confirm your entry exists and older rows remain intact
 
 === Entry Format
 ```
@@ -30,8 +30,8 @@ If after writing, another agent's entry appears with overlapping files:
 - **Option B**: If work is complete, mark as `completed` and exit
 - **Option C**: If blocked, add `blocked_by: <agent-id>` and wait
 
-=== Cleanup Rule
-Agents must update their entry to `completed` or `cancelled` within 1 hour of inactivity. Stale entries may be pruned by a maintenance agent.
+=== Completion Rule
+Agents should add a follow-up row or update their status to `completed` or `cancelled` when work stops. The session log is append-only: do not prune or delete stale rows.
 
 == Inference Token Budgeting
 Each agent session has a budget:

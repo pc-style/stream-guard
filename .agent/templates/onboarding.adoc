@@ -12,26 +12,36 @@ Read this document before starting any work in this repository.
 
 [source,bash]
 ----
-# 1. Read shared context
-cat .agent/context.adoc    # Project constraints and conventions
-cat .agent/session.adoc    # Who else is working and on what?
+# 1. Read repo guidance first
+cat AGENTS.md
+cat README.md
+cat docs/ARCHITECTURE.md
+cat .agent/context.adoc
+cat .agent/session.adoc
 
 # 2. Understand the codebase before changing it
-#    Use whatever tools are available to you:
-#    - Read source files and existing tests
-#    - Use aden (if installed) for graph-based context assembly:
-#        aden ask "What does <module> do?"
-#        aden asm --from <anchor> --depth 2
-#        aden locate --symbol <name> .
+#    Prefer Aden for navigation when available:
+#        aden ask "How does <feature> work?"
+#        aden grep "pattern"
+#        aden locate --symbol <name>
+#        aden asm --from <anchor>
+#        aden query --backlinks <anchor>
+#        aden query --impact <anchor>
 
-# 3. Make your change
-#    Run the project's own tests and build before committing.
+# 3. Make the smallest safe change
+#    Keep Apple Command Line Tools compatibility; do not require full Xcode-only workflows.
 
-# 4. Log your session
-echo "| $(date -u +%Y-%m-%dT%H:%M:%SZ) | <your-id> | <task> | <files> | completed |" >> .agent/session.adoc
+# 4. Verify with repo-native commands
+aden check . --severity Forbid
+make build
+make test
+
+# 5. Log your session
+printf '| %s | %s | %s | %s | %s | %s |
+'   "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "<your-id>" "<task>" "<files>" "completed" "High" >> .agent/session.adoc
 ----
 
-== Context Tools (if aden is installed)
+== Context Tools
 
 Aden builds a traversable knowledge graph from this codebase so you can
 query relationships and retrieve focused context without reading every file.
@@ -44,42 +54,38 @@ query relationships and retrieve focused context without reading every file.
 |`aden ask "<question>"`
 
 |Find where a symbol is defined
-|`aden locate --symbol <name> .`
+|`aden locate --symbol <name>`
 
-|Search for a keyword
-|`aden search "<term>" .`
+|Search for a keyword with structure context
+|`aden grep "pattern"`
 
 |Get focused context for a topic
-|`aden asm --from <anchor> --depth 2`
+|`aden asm --from <anchor>`
 
-|Explore graph dependencies
-|`aden query --from <anchor> --depth 2`
-
-|List all indexed anchors
-|`aden list .`
+|Explore graph backlinks / impact
+|`aden query --backlinks <anchor>` / `aden query --impact <anchor>`
 
 |Check knowledge graph health
-|`aden status .`
+|`aden check . --severity Forbid`
 |===
 
-Aden is a *read* tool for this codebase — it does not dictate your workflow,
-language, or CI process. Use it when it helps; ignore it when it does not.
+Aden is the preferred navigation tool for this codebase. Use it for code search and context assembly, then verify real behavior with the repository's own build/test commands.
 
 == Project Conventions
 
 Read `.agent/constraints.adoc` for hard rules specific to this project.
-Read `.agent/glossary.adoc` for project-specific terminology.
 
 == Session Protocol
 
 Before you start:
 
-. Append a row to `.agent/session.adoc` with your task and status `in_progress`.
+. Read `.agent/session.adoc` for overlapping work.
+. Append a row with your task and status.
 
 When you finish:
 
-. Update your row to `completed` and note what changed.
-. This gives other agents and humans visibility without coordination overhead.
+. Append or update a row noting what changed and whether verification passed.
+. Keep entries concise and factual so later maintainers can scan them quickly.
 
 == Related Documents
 
