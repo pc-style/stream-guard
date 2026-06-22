@@ -1,0 +1,84 @@
+:proj: {project}
+:feature: {feature}
+:date: {date}
+:author: {author}
+
+[[design-{feature}]]
+= Design Document: {feature}
+
+[TIP]
+====
+Design answers: "How will we build it?" Not "What will we build?" — that belongs in the specification.
+====
+
+== Overview
+
+One paragraph summary of the architecture. A reader should understand the approach in 30 seconds.
+
+== Data Flow
+
+How does information move through the system?
+
+[source]
+----
+[User Input] → [Component A] → [Component B] → [Storage]
+           ↓
+        [Side Effect]
+----
+
+Describe each arrow:
+. What travels across it?
+. What format?
+. What latency is acceptable?
+. What happens if it fails?
+
+== Component Breakdown
+
+[cols="1,2,2,1"]
+|===
+|Component |Responsibility |Interface |Owner
+
+| | | | |
+
+|===
+
+== Design Decisions
+
+Every non-obvious choice must have an ADR. List them here:
+
+. ADR-{number} — Why we chose X over Y
+. ADR-{number} — Why we chose Z over W
+
+== Failure Modes
+
+. What can fail?
+. How do we detect it?
+. How do we recover?
+. What is the blast radius?
+
+== Security Considerations
+
+. What data is sensitive?
+. Who can access what?
+. What are the trust boundaries?
+. What is the attack surface?
+
+== Performance Budget
+
+. P95 latency: ____________
+. Throughput: ____________
+. Memory: ____________
+. Storage growth: ____________
+
+== Deployment
+
+. Infrastructure required: ____________
+. Configuration changes: ____________
+. Migration steps: ____________
+. Monitoring: ____________
+
+== Related
+
+* Kickoff
+* Specification
+* Tasks

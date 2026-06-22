@@ -1,0 +1,73 @@
+:proj: {project}
+:incident: {incident}
+:date: {date}
+:author: {author}
+
+[[retro-{incident}]]
+= Retrospective: {incident}
+
+[CAUTION]
+====
+A retrospective is not a blame session. It is a learning session.
+The goal is to improve the system so the same mistake is harder to make.
+====
+
+== Timeline
+
+[cols="1,1,2"]
+|===
+|Time |What Happened |Source |
+
+| | | |
+
+|===
+
+== What Went Well
+
+. ____________ worked as expected.
+. ____________ responded faster than anticipated.
+. ____________ prevented a worse outcome.
+
+== What Did Not Go Well
+
+. ____________ took longer than expected because ____________.
+. ____________ was not documented / not known.
+. ____________ failed silently.
+
+== Root Cause
+
+Use the 5 Whys:
+. Why did this happen? Because ____________.
+. Why? Because ____________.
+. Why? Because ____________.
+. Why? Because ____________.
+. Why? Because ____________.
+
+== Action Items
+
+|===
+|Action |Owner |Due Date |Priority |
+
+| | | | |
+
+|===
+
+=== Action Item Categories
+
+Every action item must be one of:
+
+* **Prevent** — Make the failure impossible next time
+* **Detect** — Catch the failure earlier, when it is cheaper
+* **Mitigate** — Reduce blast radius when it happens again
+* **Document** — Update runbooks, playbooks, or decisions
+
+== Prevent Recurrence
+
+. What process change makes this failure harder?
+. What code change catches this earlier?
+. What monitoring gives us warning?
+
+== Related Documents
+
+* Runbook
+* Design Decisions

@@ -1,0 +1,74 @@
+:proj: stream-guard
+:lang: Swift
+:ai_name: agent
+:standard: SwiftPM on Apple Command Line Tools
+
+[[agent-context]]
+= Shared Context — stream-guard
+
+This file is the canonical shared memory for all agent sessions on `stream-guard`.
+
+== Project Identity
+
+[cols="1,2"]
+|===
+|Name |stream-guard
+|Primary Language |Swift
+|Runtime / Framework |Swift Package Manager macOS menu-bar app
+|===
+
+== Hard Constraints
+
+. **Never use npm**; use Bun for any JavaScript tooling.
+. **Keep the repo buildable with Apple Command Line Tools only** unless a user explicitly chooses full Xcode.
+. **Never commit generated build artifacts** such as `.aden/`, `contracts/`, `.build/`, or `node_modules/`.
+. **Do not treat Aden as verification**; after changes, still run repo checks such as `make build` and `make test`.
+. **Avoid live OCR/UI tests by default** unless screen-recording permission and a visible capture window are intentionally available.
+
+== Language and Style Defaults
+
+- Primary language: `Swift`
+- Standard / runtime: `SwiftPM on Apple Command Line Tools`
+- Conventions: use `make build`, `make test`, and `make run` for normal workflows.
+
+== Dependencies
+
+|===
+|Name |Purpose |Version Policy
+
+|SwiftPM / Apple Command Line Tools |Build and test the app |Keep CLI-compatible
+|Aden |Structure-aware code navigation and impact analysis |Repo-local guidance only; generated caches stay uncommitted
+|Bun |Any JS tooling used around the repo |Use instead of npm
+|===
+
+== Context Tools
+
+If Aden is installed, it can assemble focused context from the knowledge graph:
+
+[source,bash]
+----
+aden ask "<question>"            # natural language query
+aden asm --from <anchor> --depth 2 # focused context assembly
+aden locate --symbol <name>        # find a symbol
+----
+
+Aden is supplemental. The authoritative source of truth is always the source
+code, docs, and tests in this repository.
+
+== Repo Workflow Notes
+
+. Start with `AGENTS.md`, `README.md`, `docs/ARCHITECTURE.md`, and `Makefile`.
+. Prefer Aden for navigation over raw grep/find/cat when you need to understand unfamiliar code.
+. Keep local scratch/log folders such as `.codex-maintenance/` and `.stream-guard-test-logs/` ignored by both Git and Aden.
+. Commit only intentional repo guidance/config; do not commit `.aden/store`, caches, or generated contracts.
+
+== Next Steps
+
+. Read `.agent/onboarding.adoc` before your first session.
+. Read `.agent/templates/constraints.adoc` for reusable hard-rule scaffolding.
+. Append your session entry to `.agent/session.adoc` before starting work.
+
+== Related Documents
+
+. <<agent-onboarding>>
+. <<agent-session>>

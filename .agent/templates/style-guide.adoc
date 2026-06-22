@@ -1,0 +1,53 @@
+:proj: {project}
+
+[[style-guide]]
+= Style Guide for {project}
+
+== Core Principle
+
+{core_principle}
+
+== Patterns
+
+=== Admonitions (Use These)
+
+[cols="1,2"]
+|===
+|Situation |Block
+
+|Urgent security concern
+|[IMPORTANT]
+
+|Factual asides
+|[NOTE]
+
+|Performance or best-practice
+|[TIP]
+
+|Warn about a trap or pitfall
+|[CAUTION]
+
+|Risk of data loss or breakage
+|[WARNING]
+
+|===
+
+=== Code Style
+
+{code_style_example}
+
+=== Cross-References
+
+{cross_ref_example}
+
+=== Tables
+
+Use for structured data.
+
+=== Lists
+
+Use for key-value definitions, not tables with two columns.
+
+== Related Documents
+
+. {related}

@@ -1,0 +1,47 @@
+:proj: {project}
+
+[[protocol]]
+= Session Coordination Protocol
+
+== The Problem
+Multiple AI agents operating in parallel can:
+- Overwrite each other's changes
+- Duplicate effort
+- Create conflicting contracts
+- Waste inference tokens on redundant work
+
+== The Solution: Atomic Session Locking
+
+=== Protocol Steps
+. **Read Phase**: Load `.agent/session.adoc` into memory
+. **Append Phase**: Add your new entry without removing prior rows
+. **Write Phase**: Save `session.adoc` while preserving the full append-only history
+. **Verify Phase**: Re-read `session.adoc` to confirm your entry exists and older rows remain intact
+
+=== Entry Format
+```
+|Timestamp |Agent |Task |Files |Status
+|2026-05-23T12:00:00 |agent-42 |Fix bug in parser.rs |src/parser/ |in_progress
+```
+
+=== Conflict Detection
+If after writing, another agent's entry appears with overlapping files:
+- **Option A**: If your work is narrower, narrow scope further
+- **Option B**: If work is complete, mark as `completed` and exit
+- **Option C**: If blocked, add `blocked_by: <agent-id>` and wait
+
+=== Completion Rule
+Agents should add a follow-up row or update their status to `completed` or `cancelled` when work stops. The session log is append-only: do not prune or delete stale rows.
+
+== Inference Token Budgeting
+Each agent session has a budget:
+- **Structure checks**: unlimited (cheap, local compute)
+- **Semantic review**: 2048 tokens per change
+- **Full context assembly**: 8192 tokens per query
+- **Emergency debugging**: 4096 tokens
+
+Exceeding budget requires human approval or session subdivision.
+
+== Related Documents
+
+. <<policy>>

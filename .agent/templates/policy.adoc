@@ -1,0 +1,37 @@
+:heal_mode: propose-only
+:semantic_review_threshold: 0.85
+:impact_review_backlink_count: 10
+:semantic_review_budget_per_session: 10000
+
+[[policy]]
+= Governance Policy
+
+== Mandatory Gates
+. `compile_gate`: All code must compile/build successfully
+. `check_gate`: All `<<refs>>` must resolve, no cycles, valid edges
+. `heal_scan_changed_only`: Only scan files changed since last commit
+. `security_gate`: Never commit `.aden/` or secret artifacts. Run `aden ci-check` before every commit.
+
+== Confidence-Based Escalation
+|===
+|Confidence |Action |Cost
+
+|>= 0.95 |Auto-apply |0 tokens
+|>= 0.85 |Requires one-line ACK |~500 tokens
+|>= 0.70 |Requires inline review |~2000 tokens
+|< 0.70 |Full semantic review |~4000 tokens
+|===
+
+== Token Budgeting
+- Context assembly: `--budget 8192`
+- Review pipeline: `--budget 2048`
+- Per-session limit: 10000 tokens total
+
+== Session Lock Protocol
+. Every agent appends to `.agent/session.adoc` before starting
+. Append must be atomic (read -> append -> write)
+. Conflicts resolved by timestamp ordering
+
+== Related Documents
+
+. <<protocol>>

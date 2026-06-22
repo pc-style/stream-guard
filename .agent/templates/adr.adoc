@@ -1,0 +1,67 @@
+:proj: {project}
+:number: {number}
+:date: {date}
+:author: {author}
+:status: proposed
+
+[[adr-{number}]]
+= ADR-{number}: {title}
+
+[sidebar]
+.What is an ADR?
+****
+Architecture Decision Records capture why a decision was made, not just what was decided.
+They prevent circular debates and provide context for future maintainers.
+Every non-obvious choice must have an ADR.
+****
+
+== Context
+
+What is the background? What problem are we solving?
+What forces are acting on the decision? (time pressure, team size, existing tech, etc.)
+
+== Decision
+
+We will ____________.
+
+== Consequences
+
+=== Positive
+. Benefit 1
+. Benefit 2
+
+=== Negative
+. Trade-off 1
+. Trade-off 2
+
+=== Neutral / Risks
+. Risk 1
+
+== Alternatives Considered
+
+[cols="1,2,1,1"]
+|===
+|Option |Pros |Cons |Rejected Because |
+
+| | | | |
+
+|===
+
+== Related Decisions
+
+. ADR-{number} — Supersedes or dependency
+
+== Status
+
+|===
+|Date |Status |Reviewer |
+
+|{date} |proposed | |
+
+| |accepted | |
+
+| |deprecated | |
+
+|===
+
+An ADR is accepted when a reviewer acknowledges it. No code should implement a decision before its ADR is accepted.

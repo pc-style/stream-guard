@@ -1,0 +1,69 @@
+:proj: {project}
+:phase: {phase}
+
+[[plan-phase{phase}]]
+= Phase {phase}: {title}
+
+[IMPORTANT]
+====
+A plan without acceptance criteria is a wish.
+Every deliverable must have a Definition of Done.
+====
+
+== Objective
+
+In one sentence: What does success look like for this phase?
+
+== How We Got Here
+
+Reference the kickoff or specification that spawned this plan.
+Summarize why this phase exists in the larger roadmap.
+
+== Constraints
+
+. **Non-negotiables**: What must remain true regardless of circumstances?
+. **Rollback**: How do we undo this phase if something goes wrong?
+. **Deadline**: Hard date or "when ready"?
+
+== Deliverables
+
+|===
+|Module |Deliverable |Acceptance Criteria |Owner |
+
+| | | | |
+
+|===
+
+=== Definition of Done for This Phase
+
+. All acceptance criteria pass
+. ADRs are accepted
+. Runbook is updated
+. No constraints violated
+
+== Dependencies
+
+What must be finished before this phase can begin?
+
+|===
+|Dependency |Status |Blocker |
+
+| | | |
+
+|===
+
+== Risk
+
+What is the single biggest risk to this phase shipping on time?
+How do we know if the risk is materializing?
+
+== Trace
+
+- *{date}*: Initial plan
+- *{date}*: Updated because ____________
+
+== Related
+
+* Kickoff
+* Specification
+* Tasks

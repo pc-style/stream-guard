@@ -1,0 +1,73 @@
+:proj: {project}
+:feature: {feature}
+:date: {date}
+:author: {author}
+
+[[task-{feature}]]
+= Task Board: {feature}
+
+[IMPORTANT]
+====
+A task without acceptance criteria is not ready to execute.
+Every task must link back to a criterion in the specification.
+====
+
+== Ready to Execute
+
+|===
+|ID |Task |Acceptance Criteria |Deps |Estimate |Owner |Status |
+
+|TASK-1 | | | | | | |
+
+|===
+
+=== Ready Definition
+
+A task is Ready when:
+. [ ] It has clear acceptance criteria
+. [ ] Its dependencies exist and are not blocked
+. [ ] It fits within a single session / PR
+. [ ] The owner understands the approach
+
+== In Progress
+
+|===
+|ID |Task |Owner |Started |Blocker |Confidence |
+
+| | | | | | |
+
+|===
+
+== Done
+
+|===
+|ID |Task |Closed |Verification |
+
+| | | | |
+
+|===
+
+== Dependency Map
+
+[source]
+----
+TASK-1 → TASK-2 → TASK-4
+       → TASK-3 → TASK-5
+----
+
+If a task blocks another, mark it in the session log.
+
+== Risk Register
+
+|===
+|Risk |Likelihood |Impact |Mitigation |Contingency |
+
+| | | | | |
+
+|===
+
+== Related
+
+* Specification
+* Design
+* Session Log

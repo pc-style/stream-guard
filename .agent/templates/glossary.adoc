@@ -1,0 +1,10 @@
+:proj: {project}
+
+[[glossary]]
+= Project Glossary
+
+{terminology}
+
+== Related Documents
+
+. {related}

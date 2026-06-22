@@ -1,0 +1,185 @@
+:proj: {project}
+
+[[aden-guide]]
+= How to Use Aden Correctly — AI Agent Reference
+
+== What Aden Is (and Is Not)
+
+Aden is a **context compiler**, not a documentation generator.
+It extracts structure from source code and turns it into a traversable knowledge graph.
+Contracts are build artifacts — they are never committed to version control.
+
+[sidebar]
+.Contracts Are Not Docs
+****
+Do NOT:
+
+* Treat contracts as hand-written prose (they are machine-derived)
+* Edit `.aden` files directly (use `aden gen` + review)
+* Commit `.aden/` (they are in `.gitignore`)
+
+DO:
+
+* Use contracts to understand code you haven't read yet
+* Use `aden ask` to reason about impact before modifying code
+* Use `aden heal` to find drift between code and contracts
+****
+
+== Command Decision Tree
+
+[TIP]
+====
+Prefer `aden ask --budget 2048` for quick lookups.
+Only escalate to `aden asm` when you need full cross-reference context.
+====
+
+=== Before touching any existing code
+[source,bash]
+----
+aden ask --from <symbol> "What breaks if I change X?"
+aden query --from <symbol> --depth 2
+aden locate <symbol>
+----
+
+=== After writing or modifying code
+[source,bash]
+----
+aden gen <file>
+aden check .
+aden heal --scan .
+----
+
+=== Before every commit
+[source,bash]
+----
+aden ci-check .
+----
+
+=== When lost or investigating
+[source,bash]
+----
+aden ask "How does the error handling subsystem work?"
+aden search "fnv hasher"
+aden doctor .
+----
+
+=== Working with multiple languages
+[source,bash]
+----
+# Aden now supports 305+ languages via tree-sitter.
+# Deep resolvers (call graphs, imports) available for:
+#   Rust, Python, TypeScript/JavaScript, Go
+# Generic symbol extraction for all others (Java, C, C++, PHP, Ruby, Swift, etc.)
+aden gen src/main.py          # Python with import-aware call edges
+aden gen src/app.ts           # TypeScript with ES module resolution
+aden gen src/server.go        # Go with go.mod-aware module paths
+----
+
+=== Continuous development (watch mode)
+[source,bash]
+----
+aden watch .                  # Auto-regenerates contracts on file changes
+----
+
+=== MCP Server (IDE integration)
+[source,bash]
+----
+aden-mcp .                    # Starts MCP server for Claude, Cursor, Zed, Windsurf
+# Exposes aden's tools (ask, asm, grep, query, locate, check, heal) over MCP
+----
+
+== What a Good Contract Node Looks Like
+
+`aden gen` compiles each symbol into a contract node in the per-user project store (see `aden store path`; ADR-003).
+A good contract node has:
+
+. A clear `[[anchor]]` matching the source symbol name
+. An attribute table with: Visibility, Parameters, Return Type, Source File
+. A Description paragraph (not just raw signature)
+. `agent-note::` blocks for uncertainty or TODOs
+
+[CAUTION]
+====
+A bad contract contains:
+
+* No description (just raw signature)
+* Hardcoded absolute paths in `:source_file:`
+* Stale params that don't match the current source signature
+* Missing visibility information
+====
+
+== Reference Integrity Rules
+
+. Every `<<anchor>>` must resolve. Run `aden check` after any anchor change.
+. Every `include::path[]` must exist. Broken includes break the graph.
+. Circular references between contracts are forbidden — checked by `aden check`.
+. Anchor names must be lowercase ASCII with hyphens: `^[a-z0-9_-]+$`.
+
+[IMPORTANT]
+====
+If `aden check` fails, the knowledge graph is in an inconsistent state.
+Do not commit until all references resolve.
+====
+
+== Common Failure Modes
+
+[cols="1,2,1"]
+|===
+|Symptom |Cause |Fix
+
+|Broken `<<refs>>` after refactor
+|Renamed symbol, old anchor lingering in contract
+|Run `aden gen` on modified file, then `aden check`
+
+|`aden heal` reports StaleHash
+|Source changed, contract not regenerated
+|Run `aden heal . --propose` to generate a MergeReconcile patch, then `aden heal . --apply <id>` to apply it (or `aden heal . --fix` to auto-apply clean merges)
+
+|MissingContract for public symbol
+|Forgot to run `aden gen` on new file
+|Run `aden gen <file>`
+
+|DeadLink in include
+|Moved or deleted included file
+|Update include path or remove reference
+
+|Health Score < 1.0
+|At least one drift event exists
+|Run `aden heal --scan` to see all drift events
+
+|===
+
+== Token Economy
+
+Aden compresses code context.
+Use the smallest tool that answers your question:
+
+[cols="1,1,2"]
+|===
+|Command |Budget |When to use
+
+|`aden ask --budget 2048`
+|~2000 tokens
+|Quick look-ups, single-symbol reasoning
+
+|`aden ask --budget 8192`
+|~8000 tokens
+|Deep architectural reasoning, multi-hop queries
+
+|`aden asm --from <symbol>`
+|Variable
+|Full cross-reference context assembly; expensive
+
+|===
+
+[WARNING]
+====
+`aden asm` consumes tokens proportional to graph depth.
+If your project is large, assembly can exceed typical context windows.
+Start with `aden ask` and only escalate if the answer is insufficient.
+====
+
+== Related Documents
+
+. <<agent-onboarding>>
+. <<agent-context>>

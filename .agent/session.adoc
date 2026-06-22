@@ -1,0 +1,37 @@
+:proj: stream-guard
+:session: active
+
+[[agent-session]]
+= Agent Session Log
+
+This file is the canonical shared memory for parallel agent sessions.
+Every agent that modifies files must append an entry here before completing.
+
+== Active Sessions
+
+|===
+|Timestamp |Agent |Task |Files |Status |Confidence
+|2026-06-21T18:05:58Z |codex |Daily maintainer hygiene: ignore rules and agent docs cleanup |AGENTS.md, .gitignore, .adenignore, .agent/context.adoc, .agent/onboarding.adoc |completed |High
+|2026-06-21T18:10:01Z |codex |Fix PR #8 agent-doc follow-up mismatches |.agent/README.adoc, .agent/templates/onboarding.adoc, .agent/templates/protocol.adoc |completed |High
+|===
+
+== How to Append
+
+[source,asciidoc]
+----
+|2026-05-24T14:30:00Z |agent-7 |Refactor parser |src/parser.rs |in_progress |High
+----
+
+Confidence: High (>0.9), Medium (0.7–0.9), Low (<0.7 — include blocker in task description).
+
+== Invariants
+
+. Read this file before every session.
+. Append a row before declaring work complete.
+. If two agents touch the same file, reconcile before committing.
+. Never delete rows; only append.
+
+== Related Documents
+
+. <<agent-context>>
+. <<agent-onboarding>>

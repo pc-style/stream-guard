@@ -1,0 +1,99 @@
+:proj: {project}
+:system: {system}
+:version: {version}
+:owner: {owner}
+
+[[runbook-{system}]]
+= Runbook: {system}
+
+[IMPORTANT]
+====
+A runbook is not documentation. It is a procedure.
+It assumes the reader is under pressure, angry, or tired. Be explicit. No assumed knowledge.
+====
+
+== System Overview
+
+What does this system do? What does it depend on? Who depends on it?
+
+== Health Checks
+
+[source,bash]
+----
+# How to verify the system is healthy
+----
+
+=== Normal Signals
+. Metric A should be between X and Y
+. Log pattern `___` should appear every Z seconds
+
+=== Warning Signals
+. Metric A exceeds Y
+. Error rate exceeds ___%
+
+=== Critical Signals
+. Metric A exceeds Z
+. Service returns status code ___
+
+== Common Procedures
+
+=== Procedure: Deploy
+
+[source,bash]
+----
+# Step-by-step deployment commands
+----
+
+. Pre-deploy check:
+. Deploy command:
+. Post-deploy verification:
+. Rollback command:
+
+=== Procedure: Scale Up
+
+. Trigger condition:
+. Scale command:
+. Verification:
+
+=== Procedure: Rotate Credentials
+
+. What needs rotation:
+. Rotation order:
+. Verification:
+
+== Incident Response
+
+=== Severity Definitions
+
+|===
+|Severity |Impact |Response Time |Resolution Target |
+
+|Sev-1 |Complete outage |5 minutes |1 hour |
+|Sev-2 |Degraded service |15 minutes |4 hours |
+|Sev-3 |Minor impact |1 hour |24 hours |
+|===
+
+=== Incident: Service Down
+
+. Pain: What is the user-visible symptom?
+. Check: Which health check failed?
+. Isolate: Is it local or dependency failure?
+. Mitigate: What is the fastest way to restore service?
+. Fix: What is the root cause?
+. Post-mortem: Write a retrospective
+
+== Contact Information
+
+|===
+|Role |Primary |Escalation |
+
+|On-call | | |
+|Tech Lead | | |
+|Security | | |
+|===
+
+== Related
+
+* Monitoring dashboard
+* Architecture diagram
+* Design Decisions

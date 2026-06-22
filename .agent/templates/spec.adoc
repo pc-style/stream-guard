@@ -1,0 +1,88 @@
+:proj: {project}
+:feature: {feature}
+:date: {date}
+:author: {author}
+
+[[spec-{feature}]]
+= Feature Specification: {feature}
+
+[IMPORTANT]
+====
+A specification is a contract. It defines what "done" means.
+If you cannot write acceptance criteria, you do not understand the feature well enough to implement it.
+====
+
+== Context
+
+Why are we building this? What user pain does it address?
+Reference the kickoff document if this feature originated from a kickoff.
+
+== In Scope
+
+. In-scope item 1
+. In-scope item 2
+
+== Out of Scope
+
+. Out-of-scope item 1 (explicitly excluded to prevent scope creep)
+
+== User Stories
+
+[cols="1,2,2"]
+|===
+|As a ... |I want ... |So that ...
+
+| | | |
+
+|===
+
+== Acceptance Criteria (Definition of Done)
+
+. [ ] Criterion 1: Given ___, when ___, then ___.
+. [ ] Criterion 2:
+. [ ] Criterion 3:
+
+== Edge Cases
+
+. What happens when input is empty / null / malformed?
+. What happens under load?
+. What happens if a dependency is unavailable?
+. What happens on retry / duplicate submission?
+
+== Interface Contract
+
+If this feature exposes an API, UI, or command:
+
+[source]
+----
+# Show the interface here: function signature, CLI syntax, UI mock, etc.
+----
+
+== Testing Strategy
+
+. Unit tests cover: ____________
+. Integration tests cover: ____________
+. Manual QA covers: ____________
+. Security review covers: ____________
+
+== Dependencies
+
+|===
+|Dependency |Status |Risk
+
+| | | |
+
+|===
+
+== Rollback Plan
+
+If deployment fails:
+. Revert command: ____________
+. Estimated downtime: ____________
+. Data impact: ____________
+
+== Related
+
+* Kickoff
+* Design
+* Tasks
