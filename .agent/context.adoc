@@ -21,7 +21,7 @@ This file is the canonical shared memory for all agent sessions on `stream-guard
 
 . **Never use npm**; use Bun for any JavaScript tooling.
 . **Keep the repo buildable with Apple Command Line Tools only** unless a user explicitly chooses full Xcode.
-. **Never commit generated build artifacts** such as `.aden/`, `contracts/`, `.build/`, or `node_modules/`.
+. **Never commit rebuildable graph artifacts** such as `.aden/store`, caches, `contracts/`, `.build/`, or `node_modules/`. Durable `.aden/` configuration/hooks may be committed when intentional.
 . **Do not treat Aden as verification**; after changes, still run repo checks such as `make build` and `make test`.
 . **Avoid live OCR/UI tests by default** unless screen-recording permission and a visible capture window are intentionally available.
 
@@ -70,5 +70,5 @@ code, docs, and tests in this repository.
 
 == Related Documents
 
-. <<agent-onboarding>>
-. <<agent-session>>
+. <<onboarding.adoc#agent-onboarding>>
+. <<session.adoc#agent-session>>

@@ -8,9 +8,9 @@
 
 == Mandatory Gates
 . `compile_gate`: All code must compile/build successfully
-. `check_gate`: All `<<refs>>` must resolve, no cycles, valid edges
+. `check_gate`: All AsciiDoc cross-references must resolve, no cycles, valid edges
 . `heal_scan_changed_only`: Only scan files changed since last commit
-. `security_gate`: Never commit `.aden/` or secret artifacts. Run `aden ci-check` before every commit.
+. `security_gate`: Never commit rebuildable `.aden/store`, caches, generated contracts, or secret artifacts. Durable `.aden/` configuration/hooks may be committed when intentional. Run `aden ci-check` before every commit.
 
 == Confidence-Based Escalation
 |===
@@ -29,9 +29,10 @@
 
 == Session Lock Protocol
 . Every agent appends to `.agent/session.adoc` before starting
-. Append must be atomic (read -> append -> write)
-. Conflicts resolved by timestamp ordering
+. Acquire an exclusive lock on `.agent/session.adoc.lock` (for example `flock .agent/session.adoc.lock`) before reading or writing
+. Append atomically under lock: read current content, merge the new row, write to a temp file in the same directory, then rename/replace into place
+. If lock acquisition fails after a short backoff, re-read and retry; resolve conflicting rows by timestamp ordering
 
 == Related Documents
 
-. <<protocol>>
+. <<protocol.adoc#protocol>>

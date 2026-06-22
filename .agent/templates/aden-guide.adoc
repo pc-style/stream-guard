@@ -181,5 +181,5 @@ Start with `aden ask` and only escalate if the answer is insufficient.
 
 == Related Documents
 
-. <<agent-onboarding>>
-. <<agent-context>>
+. <<../onboarding.adoc#agent-onboarding>>
+. <<../context.adoc#agent-context>>

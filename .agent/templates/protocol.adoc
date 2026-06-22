@@ -13,10 +13,11 @@ Multiple AI agents operating in parallel can:
 == The Solution: Atomic Session Locking
 
 === Protocol Steps
-. **Read Phase**: Load `.agent/session.adoc` into memory
+. **Lock Phase**: Acquire an exclusive lock on `.agent/session.adoc.lock` (for example `flock .agent/session.adoc.lock`)
+. **Read Phase**: Load `.agent/session.adoc` into memory while holding the lock
 . **Append Phase**: Add your new entry without removing prior rows
-. **Write Phase**: Save `session.adoc` while preserving the full append-only history
-. **Verify Phase**: Re-read `session.adoc` to confirm your entry exists and older rows remain intact
+. **Write Phase**: Write merged content to a temp file in the same directory, then rename/replace into `session.adoc` while preserving the full append-only history
+. **Verify Phase**: Re-read `session.adoc` to confirm your entry exists and older rows remain intact, then release the lock
 
 === Entry Format
 ```
@@ -44,4 +45,4 @@ Exceeding budget requires human approval or session subdivision.
 
 == Related Documents
 
-. <<policy>>
+. <<policy.adoc#policy>>

@@ -29,5 +29,5 @@ Use the committed files in this repository as the source of truth; template file
 == Navigation
 
 . <<agent-readme>>
-. <<agent-context>>
-. <<agent-session>>
+. <<context.adoc#agent-context>>
+. <<session.adoc#agent-session>>

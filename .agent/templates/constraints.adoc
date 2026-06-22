@@ -7,7 +7,7 @@
 
 . Never write outside the working directory without explicit user permission.
 . Never delete files unless explicitly requested.
-. Never commit `.aden/` or secret artifacts.
+. Never commit rebuildable `.aden/store`, caches, generated contracts, or secret artifacts. Durable `.aden/` configuration/hooks may be committed when intentional.
 . Never write private keys, tokens, or credentials to any file in the repo.
 . Never traverse symlinks (`entry.file_type().is_symlink()`).
 
@@ -41,5 +41,5 @@
 
 == Related Documents
 
-. <<agent-context>>
-. <<agent-onboarding>>
+. <<../context.adoc#agent-context>>
+. <<../onboarding.adoc#agent-onboarding>>

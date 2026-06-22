@@ -93,5 +93,5 @@ When you finish:
 
 == Related Documents
 
-. <<agent-context>>
-. <<agent-session>>
+. <<context.adoc#agent-context>>
+. <<session.adoc#agent-session>>
