@@ -64,6 +64,17 @@ struct StreamGuardTestRunner {
             expect(dottedPhoneMatches.contains { $0.kind == "phone" }, "detects OCR-dotted phone separators")
         }
 
+        let nonPhoneDottedCases = [
+            "build 123.456.7890 completed",
+            "version 1.234.567.8901 shipped",
+        ]
+        for nonPhoneInput in nonPhoneDottedCases {
+            show("input", nonPhoneInput)
+            let nonPhoneMatches = phoneDetector.detect(in: nonPhoneInput)
+            show("matches", nonPhoneMatches.map { "\($0.kind)=\($0.matched)" }.joined(separator: ", "))
+            expect(!nonPhoneMatches.contains { $0.kind == "phone" }, "rejects dotted numeric strings without phone context")
+        }
+
         let emailInput = "email leak@test.com here"
         show("input", emailInput)
         let emailMatches = phoneDetector.detect(in: emailInput)
