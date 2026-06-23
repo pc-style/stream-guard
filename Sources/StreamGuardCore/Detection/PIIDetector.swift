@@ -145,16 +145,24 @@ public struct PIIDetector: Sendable {
     }
 
     private func detectPhone(in text: String) -> String? {
-        let pattern = #"(?:\+?1[\s.-]?)?(?:\(?\d{3}\)?[\s.-]?)\d{3}[\s.-]?\d{4}"#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
-        let range = NSRange(text.startIndex..<text.endIndex, in: text)
-        guard let match = regex.firstMatch(in: text, range: range),
-              let swiftRange = Range(match.range, in: text) else { return nil }
-        let candidate = String(text[swiftRange])
-        let digits = candidate.filter(\.isNumber)
-        guard digits.count >= 10 else { return nil }
-        guard looksLikePhone(candidate: candidate, in: text, at: swiftRange) else { return nil }
-        return candidate
+        let patterns = [
+            #"(?:\+?1[\s.-]?)?(?:\(?\d{3}\)?[\s.-]?)\d{3}[\s.-]?\d{4}"#,
+            #"(?:\+?1[\s.·•-]?)?(?:\(?\d{3}\)?[\s.·•-]?)\d{3}[\s.·•-]?\d{4}"#,
+        ]
+
+        for pattern in patterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
+            let range = NSRange(text.startIndex..<text.endIndex, in: text)
+            guard let match = regex.firstMatch(in: text, range: range),
+                  let swiftRange = Range(match.range, in: text) else { continue }
+            let candidate = String(text[swiftRange])
+            let digits = candidate.filter(\.isNumber)
+            guard digits.count >= 10 else { continue }
+            guard looksLikePhone(candidate: candidate, in: text, at: swiftRange) else { continue }
+            return candidate
+        }
+
+        return nil
     }
 
     /// Matches phones split by short non-digit runs, e.g. `555` + `then` + `123-4567` on one screen.
