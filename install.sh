@@ -18,8 +18,11 @@ cleanup() {
   if [[ -e "$BACKUP_PATH" ]]; then
     if [[ $status -ne 0 ]]; then
       rm -rf "$INSTALL_PATH"
-      mv "$BACKUP_PATH" "$INSTALL_PATH"
-      printf '%s\n' "Installation did not complete; the previous app was restored." >&2
+      if mv "$BACKUP_PATH" "$INSTALL_PATH"; then
+        printf '%s\n' "Installation did not complete; the previous app was restored." >&2
+      else
+        printf 'Installation did not complete and restoring the previous app also failed. Check %s manually.\n' "$BACKUP_PATH" >&2
+      fi
     else
       rm -rf "$BACKUP_PATH"
     fi
@@ -65,7 +68,9 @@ git -C "$WORK_DIR/source" remote add origin "$REPO_URL"
 git -C "$WORK_DIR/source" fetch --depth 1 --quiet origin "$INSTALL_REF"
 git -C "$WORK_DIR/source" checkout --detach --quiet FETCH_HEAD
 RESOLVED_REF="$(git -C "$WORK_DIR/source" rev-parse HEAD)"
-if [[ "$INSTALL_REF" =~ ^[0-9a-fA-F]{40}$ ]] && [[ "${RESOLVED_REF,,}" != "${INSTALL_REF,,}" ]]; then
+RESOLVED_REF_LOWER="$(printf '%s' "$RESOLVED_REF" | tr '[:upper:]' '[:lower:]')"
+INSTALL_REF_LOWER="$(printf '%s' "$INSTALL_REF" | tr '[:upper:]' '[:lower:]')"
+if [[ "$INSTALL_REF" =~ ^[0-9a-fA-F]{40}$ ]] && [[ "$RESOLVED_REF_LOWER" != "$INSTALL_REF_LOWER" ]]; then
   printf 'Downloaded revision %s did not match requested revision %s.\n' "$RESOLVED_REF" "$INSTALL_REF" >&2
   exit 1
 fi

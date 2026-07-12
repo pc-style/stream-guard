@@ -33,14 +33,15 @@ public struct DetectionOptions: Sendable {
 }
 
 public struct DetectionEngine: Sendable {
-    private static let regexes: [(SensitiveKind, NSRegularExpression)] = [
+    private static let patterns: [(SensitiveKind, String)] = [
         (SensitiveKind.email, #"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b"#),
         (.phone, #"(?<!\w)(?:\+?\d[\d ()-]{7,}\d)(?!\w)"#),
         (.creditCard, #"(?<!\d)(?:\d[ -]?){13,19}(?!\d)"#),
         (.nationalID, #"(?<!\d)\d{11}(?!\d)"#),
         (.ipAddress, #"(?<![\d.])(?:\d{1,3}\.){3}\d{1,3}(?![\d.])"#)
-    ].compactMap { kind, pattern in
-        (try? NSRegularExpression(pattern: pattern)).map { (kind, $0) }
+    ]
+    private static let regexes: [(SensitiveKind, NSRegularExpression)] = patterns.map { kind, pattern in
+        (kind, try! NSRegularExpression(pattern: pattern))
     }
 
     public init() {}

@@ -18,7 +18,7 @@ TESTING_LIBS="/Library/Developer/CommandLineTools/Library/Developer/usr/lib"
 case "$(xcode-select -p 2>/dev/null || true)" in
 *CommandLineTools*)
     if [ -d "$FRAMEWORKS/Testing.framework" ]; then
-        exec swift test \
+        set -- \
             -Xswiftc -F"$FRAMEWORKS" \
             -Xlinker -F"$FRAMEWORKS" \
             -Xlinker -rpath -Xlinker "$FRAMEWORKS" \
@@ -28,4 +28,19 @@ case "$(xcode-select -p 2>/dev/null || true)" in
     ;;
 esac
 
-exec swift test "$@"
+OUTPUT=$(mktemp "${TMPDIR:-/tmp}/pii-guard-tests.XXXXXX")
+trap 'rm -f "$OUTPUT"' EXIT HUP INT TERM
+
+set +e
+swift test "$@" >"$OUTPUT" 2>&1
+STATUS=$?
+set -e
+cat "$OUTPUT"
+
+if [ "$STATUS" -ne 0 ]; then
+    exit "$STATUS"
+fi
+if ! grep -q "Test run" "$OUTPUT"; then
+    printf '%s\n' "swift test exited successfully but did not report an executed test run." >&2
+    exit 1
+fi

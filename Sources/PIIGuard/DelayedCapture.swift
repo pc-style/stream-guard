@@ -129,6 +129,7 @@ final class DelayedCapture: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
 
         outputQueue.async { [weak self] in
             guard let self else { return }
+            guard isCurrent(generation) else { return }
             bufferGeneration = generation
             frames.removeAll(keepingCapacity: true)
             lastBufferedAt = nil
