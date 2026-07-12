@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PII Guard Test Page</title>
+  <style>
+    :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body { margin: 0; background: #f3f1eb; color: #1d1d1b; }
+    main { width: min(760px, calc(100% - 40px)); margin: 64px auto; }
+    header { margin-bottom: 34px; }
+    h1 { margin: 0 0 10px; font-size: 42px; letter-spacing: -1.5px; }
+    p { color: #69665f; line-height: 1.55; }
+    .status { display: inline-block; padding: 7px 11px; border-radius: 999px; background: #dce8d7; color: #34512d; font-size: 13px; font-weight: 650; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    article { padding: 22px; background: #fff; border: 1px solid #dedbd3; border-radius: 14px; }
+    article.wide { grid-column: 1 / -1; }
+    h2 { margin: 0 0 15px; font-size: 14px; color: #77736b; text-transform: uppercase; letter-spacing: .08em; }
+    .value { margin: 0; color: #191918; font: 600 18px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; user-select: text; }
+    input { box-sizing: border-box; width: 100%; padding: 12px 14px; border: 1px solid #c8c4ba; border-radius: 9px; font: 16px ui-monospace, monospace; }
+    footer { margin-top: 26px; padding: 18px; border-left: 3px solid #938c7e; }
+    @media (max-width: 620px) { .grid { grid-template-columns: 1fr; } article.wide { grid-column: auto; } }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <span class="status">Local test data only</span>
+      <h1>PII Guard test page</h1>
+      <p>These are fake values designed to trigger each detector. With Accessibility permission enabled, PII Guard should cover the values below.</p>
+    </header>
+
+    <section class="grid">
+      <article>
+        <h2>Email</h2>
+        <p class="value">alice.test@example.com</p>
+      </article>
+      <article>
+        <h2>Phone</h2>
+        <p class="value">+48 123 456 789</p>
+      </article>
+      <article>
+        <h2>Payment card</h2>
+        <p class="value">4242 4242 4242 4242</p>
+      </article>
+      <article>
+        <h2>Polish PESEL</h2>
+        <p class="value">44051401458</p>
+      </article>
+      <article>
+        <h2>IPv4 address</h2>
+        <p class="value">192.168.1.42</p>
+      </article>
+      <article>
+        <h2>Safe control text</h2>
+        <p class="value">Nothing sensitive here</p>
+      </article>
+      <article class="wide">
+        <h2>Editable field test</h2>
+        <input value="contact secret.person@example.com or +48 987 654 321" aria-label="PII test input">
+      </article>
+      <article class="wide">
+        <h2>Custom phrase</h2>
+        <p class="value">PROJECT NIGHTJAR</p>
+        <p>Add “PROJECT NIGHTJAR” through <strong>PII → Add Custom Phrase…</strong> to test phrase matching.</p>
+      </article>
+    </section>
+
+    <footer>
+      If nothing is covered, click <strong>PII</strong> in the menu bar and confirm protection is enabled, then choose <strong>Grant Accessibility Access…</strong>.
+    </footer>
+  </main>
+</body>
+</html>
