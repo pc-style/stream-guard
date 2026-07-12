@@ -77,17 +77,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             self.recorder.append(image, blockedReason: self.gate.isBlocked ? self.gate.reason : nil)
         }
         capture.onError = { [weak self] error in
-            guard let self else { return }
-            self.previewRequested = false
-            self.lifecycleGeneration &+= 1
-            self.scanner.cancelPendingScans()
-            self.scanTimer?.invalidate(); self.scanTimer = nil
-            self.clearTimer?.invalidate(); self.clearTimer = nil
-            self.gate.reset("Capture stopped")
-            self.approvalPromptPresented = false
-            if self.recorder.isRecording { self.stopRecording() }
-            self.configuration.setRunning(false, status: error)
-            self.updatePreviewState()
+            self?.haltPreview(reason: "Capture stopped", status: error)
         }
         recorder.onError = { [weak self] error in
             guard let self else { return }
@@ -154,43 +144,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func stopPreview() {
+        haltPreview(reason: "Preview stopped", status: "Preview stopped")
+        Task { await capture.stop() }
+    }
+
+    private func haltPreview(reason: String, status: String) {
         previewRequested = false
         lifecycleGeneration &+= 1
         scanner.cancelPendingScans()
-        if recorder.isRecording { stopRecording() }
         scanTimer?.invalidate(); scanTimer = nil
         clearTimer?.invalidate(); clearTimer = nil
-        gate.reset("Preview stopped")
+        gate.reset(reason)
         approvalPromptPresented = false
+        if recorder.isRecording { stopRecording() }
+        configuration.setRunning(false, status: status)
         updatePreviewState()
-        configuration.setRunning(false, status: "Preview stopped")
-        Task { await capture.stop() }
+    }
+
+    /// Schedules a repeating or one-shot timer whose fire closure only runs
+    /// while the preview is still active and on the same lifecycle generation
+    /// that requested it, coalescing the recurring guard/RunLoop boilerplate.
+    private func scheduleTimer(
+        interval: TimeInterval,
+        repeats: Bool,
+        generation: UInt64,
+        action: @escaping (AppDelegate) -> Void
+    ) -> Timer {
+        let timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: repeats) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.previewRequested, self.lifecycleGeneration == generation else { return }
+                action(self)
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        return timer
     }
 
     private func scheduleScanning(after delay: Double, generation: UInt64) {
         scanTimer?.invalidate()
         gate.reset("Filling \(Int(delay))-second buffer")
         updatePreviewState()
-        scanTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
-            Task { @MainActor in
-                guard let self, self.previewRequested, self.lifecycleGeneration == generation else { return }
-                self.startScanning(generation: generation)
-            }
+        scanTimer = scheduleTimer(interval: delay, repeats: false, generation: generation) {
+            $0.startScanning(generation: generation)
         }
-        if let scanTimer { RunLoop.main.add(scanTimer, forMode: .common) }
     }
 
     private func startScanning(generation: UInt64) {
         guard previewRequested, lifecycleGeneration == generation else { return }
         scanTimer?.invalidate()
         configuration.setRunning(true, status: "Preview running · 3 coalesced scans every 200 ms")
-        scanTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / burstsPerSecond, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                guard let self, self.previewRequested, self.lifecycleGeneration == generation else { return }
-                self.performPrivacyBurst(generation: generation)
-            }
+        scanTimer = scheduleTimer(interval: 1.0 / burstsPerSecond, repeats: true, generation: generation) {
+            $0.performPrivacyBurst(generation: generation)
         }
-        if let scanTimer { RunLoop.main.add(scanTimer, forMode: .common) }
         performPrivacyBurst(generation: generation)
     }
 
@@ -253,17 +258,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func scheduleClearanceDelay(generation: UInt64) {
         clearTimer?.invalidate()
-        clearTimer = Timer.scheduledTimer(withTimeInterval: settings.delaySeconds, repeats: false) { [weak self] _ in
-            Task { @MainActor in
-                guard let self, self.previewRequested, self.lifecycleGeneration == generation else { return }
-                self.gate.completeClearanceDelay()
-                self.updatePreviewState()
-                if self.gate.pendingManualApproval && !self.approvalPromptPresented {
-                    self.requestSafeConfirmation()
-                }
+        clearTimer = scheduleTimer(interval: settings.delaySeconds, repeats: false, generation: generation) { appDelegate in
+            appDelegate.gate.completeClearanceDelay()
+            appDelegate.updatePreviewState()
+            if appDelegate.gate.pendingManualApproval && !appDelegate.approvalPromptPresented {
+                appDelegate.requestSafeConfirmation()
             }
         }
-        if let clearTimer { RunLoop.main.add(clearTimer, forMode: .common) }
     }
 
     private func requestSafeConfirmation() {

@@ -117,6 +117,9 @@ final class AccessibilityScanner: @unchecked Sendable {
         // produce a detection.
         let deadline = ProcessInfo.processInfo.systemUptime + scanTimeout
         var coverageFailure: String?
+        func recordCoverageFailure(_ message: @autoclosure () -> String) {
+            if coverageFailure == nil { coverageFailure = message() }
+        }
         var scannedApps: [String] = []
         for app in apps {
             let appName = app.localizedName ?? "Captured app"
@@ -124,7 +127,7 @@ final class AccessibilityScanner: @unchecked Sendable {
             var windowsValue: CFTypeRef?
             guard AXUIElementCopyAttributeValue(root, kAXWindowsAttribute as CFString, &windowsValue) == .success,
                   let allWindows = windowsValue as? [AXUIElement], !allWindows.isEmpty else {
-                if coverageFailure == nil { coverageFailure = "Accessibility unsupported in \(appName)" }
+                recordCoverageFailure("Accessibility unsupported in \(appName)")
                 continue
             }
             // Only windows on the captured display count toward the window
@@ -135,11 +138,11 @@ final class AccessibilityScanner: @unchecked Sendable {
                 return captureBounds.intersects(frame)
             }
             guard !windows.isEmpty else {
-                if coverageFailure == nil { coverageFailure = "Unable to match \(appName) windows to the captured display" }
+                recordCoverageFailure("Unable to match \(appName) windows to the captured display")
                 continue
             }
             guard windows.count <= maxWindowsPerApp else {
-                if coverageFailure == nil { coverageFailure = "Accessibility window limit exceeded in \(appName)" }
+                recordCoverageFailure("Accessibility window limit exceeded in \(appName)")
                 continue
             }
 
@@ -222,7 +225,7 @@ final class AccessibilityScanner: @unchecked Sendable {
         var visibleValue: CFTypeRef?
         let visibleResult = AXUIElementCopyAttributeValue(element, "AXVisible" as CFString, &visibleValue)
         if visibleResult == .success, let visible = visibleValue as? Bool, !visible { return }
-        if visibleResult != .success && visibleResult != .noValue && visibleResult != .attributeUnsupported {
+        if visibleResult != .success, !isRecoverableAttributeError(visibleResult) {
             complete = false
             return
         }
@@ -234,7 +237,7 @@ final class AccessibilityScanner: @unchecked Sendable {
                 guard text.count <= 20_000 else { complete = false; return }
                 output.append(contentsOf: engine.detect(in: text, options: options).map { ScreenDetection(kind: $0.kind) })
             }
-        } else if textResult != .noValue && textResult != .attributeUnsupported {
+        } else if !isRecoverableAttributeError(textResult) {
             complete = false
             return
         }
@@ -247,8 +250,12 @@ final class AccessibilityScanner: @unchecked Sendable {
                 walk(child, options: options, output: &output, visited: &visited, complete: &complete, deadline: deadline)
                 if !complete { break }
             }
-        } else if childrenResult != .noValue && childrenResult != .attributeUnsupported {
+        } else if !isRecoverableAttributeError(childrenResult) {
             complete = false
         }
+    }
+
+    private func isRecoverableAttributeError(_ result: AXError) -> Bool {
+        result == .noValue || result == .attributeUnsupported
     }
 }
