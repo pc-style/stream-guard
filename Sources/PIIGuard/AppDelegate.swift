@@ -4,6 +4,7 @@ import PIIGuardCore
 import UserNotifications
 import UniformTypeIdentifiers
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     private let settings = Settings()
     private let scanner = AccessibilityScanner()
@@ -18,12 +19,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private let burstsPerSecond = 5.0
     private let scansPerBurst = 3
     private var approvalPromptPresented = false
+    private var previewRequested = false
+    private var lifecycleGeneration: UInt64 = 0
+    private var clearanceGeneration: UInt64 = 0
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         buildWindows()
         buildStatusItem()
         wireCapture()
+        updatePreviewState()
         requestAccessibilityIfNeeded()
         UNUserNotificationCenter.current().delegate = self
         configuration.showWindow(nil)
@@ -31,6 +36,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        previewRequested = false
+        lifecycleGeneration &+= 1
+        scanner.cancelPendingScans()
         scanTimer?.invalidate()
         clearTimer?.invalidate()
         Task { await capture.stop() }
@@ -42,6 +50,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         configuration.onStart = { [weak self] in self?.startPreview() }
         configuration.onStop = { [weak self] in self?.stopPreview() }
         configuration.onOpenPreview = { [weak self] in self?.showPreview() }
+        configuration.onOpenPermissions = { [weak self] in self?.openRequiredPrivacySettings() }
         configuration.onSettingsChanged = { [weak self] in self?.settingsChanged() }
         configuration.onManualClear = { [weak self] in self?.approveSafeState() }
         configuration.onToggleRecording = { [weak self] in self?.toggleRecording() }
@@ -68,9 +77,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             self.recorder.append(image, blockedReason: self.gate.isBlocked ? self.gate.reason : nil)
         }
         capture.onError = { [weak self] error in
-            self?.gate.reset("Capture stopped")
-            self?.configuration.setRunning(false, status: error)
-            self?.updatePreviewState()
+            guard let self else { return }
+            self.previewRequested = false
+            self.lifecycleGeneration &+= 1
+            self.scanner.cancelPendingScans()
+            self.scanTimer?.invalidate(); self.scanTimer = nil
+            self.clearTimer?.invalidate(); self.clearTimer = nil
+            self.gate.reset("Capture stopped")
+            self.approvalPromptPresented = false
+            if self.recorder.isRecording { self.stopRecording() }
+            self.configuration.setRunning(false, status: error)
+            self.updatePreviewState()
+        }
+        recorder.onError = { [weak self] error in
+            guard let self else { return }
+            self.configuration.setRecording(false)
+            self.configuration.setRunning(self.capture.isRunning, status: error)
         }
     }
 
@@ -80,7 +102,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func startPreview() {
+        previewRequested = true
+        lifecycleGeneration &+= 1
+        let generation = lifecycleGeneration
+        scanner.cancelPendingScans()
         scanTimer?.invalidate(); scanTimer = nil
+        clearTimer?.invalidate(); clearTimer = nil
         gate.requiredCleanChecks = settings.clearMode.requiredChecks(checksPerSecond: burstsPerSecond)
         gate.requiresManualApproval = settings.clearMode.requiresManualApproval
         gate.requiresClearanceDelay = true
@@ -90,36 +117,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         showPreview()
         updatePreviewState()
 
+        let size = settings.captureResolution.size
+        let delay = settings.delaySeconds
+        let fps = settings.captureFPS
+        let showsCursor = settings.showsCursor
         Task { [weak self] in
             guard let self else { return }
             do {
-                let size = settings.captureResolution.size
                 try await capture.start(
-                    delaySeconds: settings.delaySeconds,
-                    fps: settings.captureFPS,
+                    delaySeconds: delay,
+                    fps: fps,
                     width: size.width,
                     height: size.height,
-                    showsCursor: settings.showsCursor
+                    showsCursor: showsCursor
                 )
-                await MainActor.run {
-                    self.configuration.setRunning(true, status: "Buffering for \(Int(self.settings.delaySeconds)) seconds before checks begin")
-                    self.configuration.refreshPermissions()
-                    self.scheduleScanning(after: self.settings.delaySeconds)
-                }
+                guard previewRequested, lifecycleGeneration == generation else { return }
+                configuration.setRunning(true, status: "Buffering for \(Int(delay)) seconds before checks begin")
+                configuration.refreshPermissions()
+                scheduleScanning(after: delay, generation: generation)
+            } catch CaptureError.cancelled {
+                return
             } catch {
-                await MainActor.run {
-                    self.scanTimer?.invalidate()
-                    self.configuration.setRunning(false, status: "Screen Recording access is required. Grant it in System Settings, then start again.")
-                    self.configuration.refreshPermissions()
-                    if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
-                        NSWorkspace.shared.open(url)
-                    }
+                guard previewRequested, lifecycleGeneration == generation else { return }
+                previewRequested = false
+                scanner.cancelPendingScans()
+                scanTimer?.invalidate(); scanTimer = nil
+                gate.reset("Screen Recording permission required")
+                updatePreviewState()
+                configuration.setRunning(false, status: "Screen Recording access is required. Grant it in System Settings, then start again.")
+                configuration.refreshPermissions()
+                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
+                    NSWorkspace.shared.open(url)
                 }
             }
         }
     }
 
     private func stopPreview() {
+        previewRequested = false
+        lifecycleGeneration &+= 1
+        scanner.cancelPendingScans()
         if recorder.isRecording { stopRecording() }
         scanTimer?.invalidate(); scanTimer = nil
         clearTimer?.invalidate(); clearTimer = nil
@@ -130,60 +167,72 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         Task { await capture.stop() }
     }
 
-    private func scheduleScanning(after delay: Double) {
+    private func scheduleScanning(after delay: Double, generation: UInt64) {
         scanTimer?.invalidate()
         gate.reset("Filling \(Int(delay))-second buffer")
         updatePreviewState()
         scanTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
-            self?.startScanning()
+            Task { @MainActor in
+                guard let self, self.previewRequested, self.lifecycleGeneration == generation else { return }
+                self.startScanning(generation: generation)
+            }
         }
-        RunLoop.main.add(scanTimer!, forMode: .common)
+        if let scanTimer { RunLoop.main.add(scanTimer, forMode: .common) }
     }
 
-    private func startScanning() {
+    private func startScanning(generation: UInt64) {
+        guard previewRequested, lifecycleGeneration == generation else { return }
         scanTimer?.invalidate()
-        configuration.setRunning(true, status: "Preview running · 3 scans every 200 ms")
+        configuration.setRunning(true, status: "Preview running · 3 coalesced scans every 200 ms")
         scanTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / burstsPerSecond, repeats: true) { [weak self] _ in
-            self?.performPrivacyBurst()
+            Task { @MainActor in
+                guard let self, self.previewRequested, self.lifecycleGeneration == generation else { return }
+                self.performPrivacyBurst(generation: generation)
+            }
         }
-        RunLoop.main.add(scanTimer!, forMode: .common)
-        performPrivacyBurst()
+        if let scanTimer { RunLoop.main.add(scanTimer, forMode: .common) }
+        performPrivacyBurst(generation: generation)
     }
 
-    private func performPrivacyBurst() {
+    private func performPrivacyBurst(generation: UInt64) {
+        guard previewRequested, lifecycleGeneration == generation else { return }
         gate.requiredCleanChecks = settings.clearMode.requiredChecks(checksPerSecond: burstsPerSecond)
         gate.requiresManualApproval = settings.clearMode.requiresManualApproval
         gate.requiresClearanceDelay = true
 
-        for _ in 0..<scansPerBurst {
-            switch scanner.scan(options: settings.detectionOptions) {
-            case .unavailable:
-                gate.update(hasPII: false, unavailableReason: "Accessibility permission required")
-                updatePreviewState()
-                return
-            case .unsupported:
-                continue
-            case .detections(let detections, let app):
-                if !detections.isEmpty {
-                    clearTimer?.invalidate(); clearTimer = nil
-                    let kinds = Set(detections.map { $0.kind.rawValue }).sorted().joined(separator: ", ")
-                    gate.update(hasPII: true, detectionReason: "PII detected in \(app) · \(kinds)")
-                    approvalPromptPresented = false
-                    updatePreviewState()
-                    return
+        scanner.requestBurst(
+            options: settings.detectionOptions,
+            captureBounds: capture.targetBounds,
+            count: scansPerBurst
+        ) { [weak self] result in
+            guard let self, self.previewRequested, self.lifecycleGeneration == generation else { return }
+            switch result {
+            case .inconclusive(let reason):
+                self.invalidateClearance(with: .inconclusive(reason))
+            case .detected(let detections, let app):
+                let kinds = Set(detections.map { $0.kind.rawValue }).sorted().joined(separator: ", ")
+                self.invalidateClearance(with: .detected("PII detected in \(app) · \(kinds)"))
+            case .clean:
+                let wasWaitingForDelay = self.gate.pendingClearanceDelay
+                self.gate.update(.clean)
+                self.updatePreviewState()
+                if self.gate.pendingClearanceDelay && !wasWaitingForDelay {
+                    self.scheduleClearanceDelay(generation: generation)
                 }
             }
         }
-        let wasWaitingForDelay = gate.pendingClearanceDelay
-        gate.update(hasPII: false)
+    }
+
+    private func invalidateClearance(with result: PrivacyScanResult) {
+        clearTimer?.invalidate(); clearTimer = nil
+        clearanceGeneration &+= 1
+        gate.update(result)
         updatePreviewState()
-        if gate.pendingClearanceDelay && !wasWaitingForDelay {
-            scheduleClearanceDelay()
-        }
     }
 
     private func updatePreviewState() {
         preview.setBlocked(gate.isBlocked, reason: gate.reason, delay: settings.delaySeconds)
+        configuration.setProtectionState(blocked: gate.isBlocked, reason: gate.reason)
         configuration.setManualClearanceRequired(gate.pendingManualApproval)
     }
 
@@ -191,38 +240,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         gate.requiredCleanChecks = settings.clearMode.requiredChecks(checksPerSecond: burstsPerSecond)
         gate.requiresManualApproval = settings.clearMode.requiresManualApproval
         gate.requiresClearanceDelay = true
-        capture.updateDelay(settings.delaySeconds)
         gate.reset("Settings changed · checking again")
+        scanner.cancelPendingScans()
         clearTimer?.invalidate(); clearTimer = nil
         approvalPromptPresented = false
         updatePreviewState()
         if settings.clearMode == .safe {
             UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
         }
-        if capture.isRunning {
-            Task { [weak self] in
-                guard let self else { return }
-                await capture.stop()
-                await MainActor.run { self.startPreview() }
-            }
-        }
+        if previewRequested { startPreview() }
     }
 
-    private func scheduleClearanceDelay() {
+    private func scheduleClearanceDelay(generation: UInt64) {
         clearTimer?.invalidate()
         clearTimer = Timer.scheduledTimer(withTimeInterval: settings.delaySeconds, repeats: false) { [weak self] _ in
-            guard let self else { return }
-            self.gate.completeClearanceDelay()
-            self.updatePreviewState()
-            if self.gate.pendingManualApproval && !self.approvalPromptPresented {
-                self.requestSafeConfirmation()
+            Task { @MainActor in
+                guard let self, self.previewRequested, self.lifecycleGeneration == generation else { return }
+                self.gate.completeClearanceDelay()
+                self.updatePreviewState()
+                if self.gate.pendingManualApproval && !self.approvalPromptPresented {
+                    self.requestSafeConfirmation()
+                }
             }
         }
-        RunLoop.main.add(clearTimer!, forMode: .common)
+        if let clearTimer { RunLoop.main.add(clearTimer, forMode: .common) }
     }
 
     private func requestSafeConfirmation() {
         approvalPromptPresented = true
+        let promptLifecycleGeneration = lifecycleGeneration
+        let promptClearanceGeneration = clearanceGeneration
         let content = UNMutableNotificationContent()
         content.title = "PII Guard"
         content.body = "The clean-check threshold passed. Is it safe now?"
@@ -235,7 +282,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         alert.informativeText = "PII Guard found no sensitive text during the required clean bursts. The preview stays black until you approve it."
         alert.addButton(withTitle: "Yes, unblock preview")
         alert.addButton(withTitle: "No, keep blocked")
-        if alert.runModal() == .alertFirstButtonReturn {
+        let response = alert.runModal()
+        let responseIsCurrent = previewRequested
+            && lifecycleGeneration == promptLifecycleGeneration
+            && clearanceGeneration == promptClearanceGeneration
+            && gate.pendingManualApproval
+        approvalPromptPresented = false
+
+        guard responseIsCurrent else {
+            updatePreviewState()
+            if gate.pendingManualApproval { requestSafeConfirmation() }
+            return
+        }
+        if response == .alertFirstButtonReturn {
             approveSafeState()
         } else {
             gate.requireManualClearance()
@@ -271,9 +330,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func stopRecording() {
         configuration.setRecording(false)
-        recorder.stop { [weak self] url in
+        recorder.stop { [weak self] url, failure in
             guard let self else { return }
-            if let url {
+            if let failure {
+                self.configuration.setRunning(self.capture.isRunning, status: failure)
+            } else if let url {
                 self.configuration.setRunning(self.capture.isRunning, status: "Recording saved to \(url.lastPathComponent)")
             } else {
                 self.configuration.setRunning(self.capture.isRunning, status: "Recording stopped before any frames were written.")
@@ -281,13 +342,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
         completionHandler([.banner, .sound])
     }
 
     private func showPreview() {
         preview.showWindow(nil)
         preview.window?.orderFrontRegardless()
+    }
+
+    private func openRequiredPrivacySettings() {
+        let pane = scanner.isTrusted ? "Privacy_ScreenCapture" : "Privacy_Accessibility"
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") else { return }
+        NSWorkspace.shared.open(url)
     }
 
     @objc private func openConfiguration() {
