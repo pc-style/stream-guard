@@ -1,139 +1,230 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>PII Guard | delayed screen sharing for macOS</title>
-  <meta name="description" content="A local macOS app that delays your screen-share preview and blacks it out when visible Accessibility text contains sensitive data.">
-  <meta name="theme-color" content="#11110f">
-  <meta property="og:title" content="PII Guard | stop leaking private text on stream">
-  <meta property="og:description" content="Delayed screen sharing, instant PII blackout, local processing, and no OCR.">
-  <meta property="og:type" content="website">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/website.css">
-</head>
-<body>
-  <div class="grain" aria-hidden="true"></div>
-  <nav class="nav wrap">
-    <a class="brand" href="#top"><span class="brand-mark"></span>PII Guard</a>
-    <div class="nav-links">
-      <a href="#system">How it works</a>
-      <a href="#install">Install</a>
-      <a class="nav-source" href="https://github.com/pc-style/stream-guard">GitHub ↗</a>
-    </div>
-  </nav>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PII Guard | delayed screen sharing for macOS</title>
+    <meta
+      name="description"
+      content="A local macOS app that delays your screen-share preview and blacks it out when visible Accessibility text contains sensitive data."
+    />
+    <meta name="theme-color" content="#11110f" />
+    <meta
+      property="og:title"
+      content="PII Guard | stop leaking private text on stream"
+    />
+    <meta
+      property="og:description"
+      content="Delayed screen sharing, instant PII blackout, local processing, and no OCR."
+    />
+    <meta property="og:type" content="website" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/website.css" />
+  </head>
+  <body>
+    <div class="grain" aria-hidden="true"></div>
+    <nav class="nav wrap">
+      <a class="brand" href="#top"><span class="brand-mark"></span>PII Guard</a>
+      <div class="nav-links">
+        <a href="#system">How it works</a>
+        <a href="#install">Install</a>
+        <a class="nav-source" href="https://github.com/pc-style/stream-guard"
+          >GitHub ↗</a
+        >
+      </div>
+    </nav>
 
-  <main id="top">
-    <header class="hero wrap">
-      <div class="hero-copy">
-        <p class="eyebrow">macOS 13+ / local processing / open source</p>
-        <h1>Your stream can wait. <span class="inline-screen" aria-hidden="true"><i></i><b>PII detected</b></span> Your privacy can’t.</h1>
-        <p class="hero-lede">PII Guard delays the screen preview you share. The moment visible Accessibility text contains sensitive data, the whole stream goes black.</p>
-        <div class="hero-actions">
-          <a class="button primary" href="#install">Build it locally</a>
-          <a class="button secondary" href="https://github.com/pc-style/stream-guard">Read the source</a>
+    <main id="top">
+      <header class="hero wrap">
+        <div class="hero-copy">
+          <p class="eyebrow">macOS 13+ / local processing / open source</p>
+          <h1>Your stream can wait. Your privacy can’t.</h1>
+          <p class="hero-lede">
+            PII Guard delays the screen preview you share. The moment visible
+            Accessibility text contains sensitive data, the whole stream goes
+            black.
+          </p>
+          <div class="hero-actions">
+            <a class="button primary" href="#install">Build it locally</a>
+            <a
+              class="button secondary"
+              href="https://github.com/pc-style/stream-guard"
+              >Read the source</a
+            >
+          </div>
+        </div>
+
+        <div class="preview-shell" aria-label="PII Guard preview demonstration">
+          <div class="window-bar">
+            <span></span><span></span><span></span><b>PII Guard Preview</b>
+          </div>
+          <div class="preview-content">
+            <div class="fake-app">
+              <small>customer note</small>
+              <strong>Send the follow-up to<br />demo@example.com</strong>
+              <p>Account review is ready for the call.</p>
+            </div>
+            <div class="blackout">
+              <div class="pulse"></div>
+              <strong>PII detected</strong>
+              <span>preview protected instantly</span>
+            </div>
+          </div>
+          <div class="preview-foot">
+            <span>delay 2.0s</span><span>1080p / 15 fps</span
+            ><span class="armed">armed</span>
+          </div>
+        </div>
+      </header>
+
+      <div class="marquee" aria-hidden="true">
+        <div>
+          SHARE THE DELAYED PREVIEW, NOT YOUR DISPLAY / PII APPEARS / THE
+          PREVIEW GOES BLACK / YOU CLEAR IT WHEN IT’S SAFE / SHARE THE DELAYED
+          PREVIEW, NOT YOUR DISPLAY / PII APPEARS / THE PREVIEW GOES BLACK / YOU
+          CLEAR IT WHEN IT’S SAFE /
         </div>
       </div>
 
-      <div class="preview-shell" aria-label="PII Guard preview demonstration">
-        <div class="window-bar"><span></span><span></span><span></span><b>PII Guard Preview</b></div>
-        <div class="preview-content">
-          <div class="fake-app">
-            <small>customer note</small>
-            <strong>Send the follow-up to<br>demo@example.com</strong>
-            <p>Account review is ready for the call.</p>
-          </div>
-          <div class="blackout">
-            <div class="pulse"></div>
-            <strong>PII detected</strong>
-            <span>preview protected instantly</span>
-          </div>
+      <section class="interest wrap" id="system">
+        <div class="section-intro">
+          <h2>Share the preview window. Keep the raw display to yourself.</h2>
         </div>
-        <div class="preview-foot"><span>delay 2.0s</span><span>1080p / 15 fps</span><span class="armed">armed</span></div>
-      </div>
-    </header>
+        <div class="bento">
+          <article class="card wide">
+            <h3>Black first. Clear later.</h3>
+            <p>
+              A detection covers the preview immediately. Clean checks run in
+              three-scan bursts every 200 ms, then the app waits one full stream
+              delay before showing video again.
+            </p>
+            <div class="timeline">
+              <i class="danger"></i><i></i><i></i><i></i><i></i
+              ><i class="safe"></i>
+            </div>
+          </article>
+          <article class="card dark">
+            <h3>No image analysis.</h3>
+            <p>
+              Detection reads text that apps expose through macOS Accessibility.
+              There are no screenshots, OCR jobs, uploads, or remote APIs.
+            </p>
+            <div class="local-ring"><span>on device</span></div>
+          </article>
+          <article class="card acid">
+            <h3>Safe mode asks you.</h3>
+            <p>
+              After the stream becomes clean, PII Guard can keep it blocked
+              until you confirm “It’s safe now.”
+            </p>
+          </article>
+          <article class="card">
+            <h3>Tune the stream.</h3>
+            <p>
+              Pick the delay, resolution, frame rate, cursor visibility,
+              detection rules, and clearance policy from the app.
+            </p>
+          </article>
+          <article class="card red">
+            <h3>Record what viewers see.</h3>
+            <p>
+              Save the protected delayed output to MP4, including every blackout
+              frame.
+            </p>
+          </article>
+        </div>
+      </section>
 
-    <div class="marquee" aria-hidden="true"><div>ACCESSIBILITY TEXT / DELAYED PREVIEW / INSTANT BLACKOUT / SAFE MODE / LOCAL MP4 / NO OCR / ACCESSIBILITY TEXT / DELAYED PREVIEW / INSTANT BLACKOUT / SAFE MODE / LOCAL MP4 / NO OCR /</div></div>
+      <section class="sequence wrap">
+        <div class="sequence-title">
+          <h2 id="sequence-heading">Delay.</h2>
+          <p id="sequence-description">
+            The preview starts black while the stream buffer fills.
+          </p>
+        </div>
+        <div class="sequence-cards">
+          <article>
+            <span>capture</span>
+            <h3>The preview starts black.</h3>
+            <p>
+              Checks wait for the configured stream delay, so nothing unverified
+              appears at startup.
+            </p>
+          </article>
+          <article>
+            <span>detect</span>
+            <h3>Any match blocks now.</h3>
+            <p>
+              Email, phone, payment card, PESEL, IPv4, and custom phrase checks
+              run independently of frame rendering.
+            </p>
+          </article>
+          <article>
+            <span>clear</span>
+            <h3>Clean means clean in the buffer.</h3>
+            <p>
+              After enough clean bursts, the app waits the current preview delay
+              before it reveals the stream.
+            </p>
+          </article>
+          <article>
+            <span>confirm</span>
+            <h3>You can keep the final say.</h3>
+            <p>
+              Safe mode holds the blackout until the notification, dialog, or
+              control-panel button gets your approval.
+            </p>
+          </article>
+        </div>
+      </section>
 
-    <section class="interest wrap" id="system">
-      <div class="section-intro">
-        <p class="eyebrow">one protected output</p>
-        <h2>Share the preview window. Keep the raw display to yourself.</h2>
-      </div>
-      <div class="bento">
-        <article class="card wide">
-          <span class="card-index">01</span>
-          <h3>Black first. Clear later.</h3>
-          <p>A detection covers the preview immediately. Clean checks run in three-scan bursts every 200 ms, then the app waits one full stream delay before showing video again.</p>
-          <div class="timeline"><i class="danger"></i><i></i><i></i><i></i><i></i><i class="safe"></i></div>
-        </article>
-        <article class="card dark">
-          <span class="card-index">02</span>
-          <h3>No image analysis.</h3>
-          <p>Detection reads text that apps expose through macOS Accessibility. There are no screenshots, OCR jobs, uploads, or remote APIs.</p>
-          <div class="local-ring"><span>on device</span></div>
-        </article>
-        <article class="card acid">
-          <span class="card-index">03</span>
-          <h3>Safe mode asks you.</h3>
-          <p>After the stream becomes clean, PII Guard can keep it blocked until you confirm “It’s safe now.”</p>
-        </article>
-        <article class="card">
-          <span class="card-index">04</span>
-          <h3>Tune the stream.</h3>
-          <p>Pick the delay, resolution, frame rate, cursor visibility, detection rules, and clearance policy from the app.</p>
-        </article>
-        <article class="card red">
-          <span class="card-index">05</span>
-          <h3>Record what viewers see.</h3>
-          <p>Save the protected delayed output to MP4, including every blackout frame.</p>
-        </article>
-      </div>
-    </section>
+      <section class="install wrap" id="install">
+        <div class="install-copy">
+          <h2>Build it locally.</h2>
+          <p>
+            PII Guard is currently distributed as source while I work on
+            obtaining an Apple Developer license. The installer sets up Apple’s
+            Command Line Tools when needed, builds the app on your Mac, installs
+            it in Applications, and cleans up after itself.
+          </p>
+          <a class="button support" href="https://ko-fi.com/pcstyle"
+            >Support the project on Ko-fi</a
+          >
+          <ul>
+            <li>macOS 13 or newer</li>
+            <li>full Xcode is not required</li>
+            <li>Accessibility and Screen Recording permissions stay local</li>
+          </ul>
+        </div>
+        <div class="terminal">
+          <div class="terminal-top">
+            <span>Terminal</span
+            ><button type="button" id="copy-command">Copy</button>
+          </div>
+          <pre><code id="install-command">curl -fsSL https://install.pcstyle.dev/stream-guard.sh | bash</code></pre>
+          <p id="copy-status" aria-live="polite">
+            one command. source is public.
+          </p>
+        </div>
+      </section>
+    </main>
 
-    <section class="sequence wrap">
-      <div class="sequence-title">
-        <p class="eyebrow">the safety path</p>
-        <h2>A delay only helps when clearance respects it.</h2>
-        <p>PII Guard tracks the stream buffer instead of trusting the latest frame.</p>
+    <footer class="footer wrap">
+      <a class="brand" href="#top"><span class="brand-mark"></span>PII Guard</a>
+      <p>Local real-time screen protection for macOS.</p>
+      <div>
+        <a href="https://github.com/pc-style/stream-guard">Source</a
+        ><a href="#install">Install</a>
       </div>
-      <div class="sequence-cards">
-        <article><span>capture</span><h3>The preview starts black.</h3><p>Checks wait for the configured stream delay, so nothing unverified appears at startup.</p></article>
-        <article><span>detect</span><h3>Any match blocks now.</h3><p>Email, phone, payment card, PESEL, IPv4, and custom phrase checks run independently of frame rendering.</p></article>
-        <article><span>clear</span><h3>Clean means clean in the buffer.</h3><p>After enough clean bursts, the app waits the current preview delay before it reveals the stream.</p></article>
-        <article><span>confirm</span><h3>You can keep the final say.</h3><p>Safe mode holds the blackout until the notification, dialog, or control-panel button gets your approval.</p></article>
-      </div>
-    </section>
+    </footer>
 
-    <section class="install wrap" id="install">
-      <div class="install-copy">
-        <p class="eyebrow">public preview</p>
-        <h2>Built on your Mac because Apple signing costs money.</h2>
-        <p>There’s no paid Developer certificate yet. The installer sets up Apple’s Command Line Tools when needed, clones the source into a temporary folder, builds the app, installs it in Applications, cleans up, and launches it.</p>
-        <ul>
-          <li>macOS 13 or newer</li>
-          <li>full Xcode is not required</li>
-          <li>Accessibility and Screen Recording permissions stay local</li>
-        </ul>
-      </div>
-      <div class="terminal">
-        <div class="terminal-top"><span>Terminal</span><button type="button" id="copy-command">Copy</button></div>
-        <pre><code id="install-command">curl -fsSL https://install.pcstyle.dev/stream-guard.sh | bash</code></pre>
-        <p id="copy-status" aria-live="polite">one command. source is public.</p>
-      </div>
-    </section>
-  </main>
-
-  <footer class="footer wrap">
-    <a class="brand" href="#top"><span class="brand-mark"></span>PII Guard</a>
-    <p>Local screen protection for macOS.</p>
-    <div><a href="https://github.com/pc-style/stream-guard">Source</a><a href="#install">Install</a></div>
-  </footer>
-
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.13.0/gsap.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.13.0/ScrollTrigger.min.js"></script>
-  <script src="/website.js"></script>
-</body>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.13.0/gsap.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.13.0/ScrollTrigger.min.js"></script>
+    <script src="/website.js"></script>
+  </body>
 </html>
