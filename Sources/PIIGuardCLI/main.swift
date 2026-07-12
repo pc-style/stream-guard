@@ -56,20 +56,31 @@ case "start":
     }
     var launchCompleted = false
     var launchError: Error?
+    let launchLock = NSLock()
     NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: appPath), configuration: .init()) { _, error in
+        launchLock.lock()
         launchError = error
         launchCompleted = true
+        launchLock.unlock()
     }
     let deadline = Date().addingTimeInterval(launchTimeout)
-    while !launchCompleted && Date() < deadline {
+    while Date() < deadline {
+        launchLock.lock()
+        let completed = launchCompleted
+        launchLock.unlock()
+        if completed { break }
         RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
     }
-    guard launchCompleted else {
+    launchLock.lock()
+    let completed = launchCompleted
+    let error = launchError
+    launchLock.unlock()
+    guard completed else {
         fputs("Timed out after \(Int(launchTimeout)) seconds while starting PII Guard\n", stderr)
         exit(1)
     }
-    if let launchError {
-        fputs("Could not start PII Guard: \(launchError.localizedDescription)\n", stderr)
+    if let error {
+        fputs("Could not start PII Guard: \(error.localizedDescription)\n", stderr)
         exit(1)
     }
 case "stop":
@@ -81,7 +92,13 @@ case "permission":
     NSWorkspace.shared.open(url)
 case "check":
     guard arguments.count > 1 else { usage() }
-    let text = arguments[1] == "--stdin" ? readStandardInput() : arguments.dropFirst().joined(separator: " ")
+    let text: String
+    if arguments[1] == "--stdin" {
+        guard arguments.count == 2 else { usage() }
+        text = readStandardInput()
+    } else {
+        text = arguments.dropFirst().joined(separator: " ")
+    }
     let detections = DetectionEngine().detect(in: text, options: DetectionOptions())
     if detections.isEmpty {
         print("No supported PII detected")

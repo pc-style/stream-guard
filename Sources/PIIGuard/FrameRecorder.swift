@@ -18,6 +18,7 @@ final class FrameRecorder: @unchecked Sendable {
     private var finishing = false
     private var blockedImage: CGImage?
     private var blockedImageKey = ""
+    private var terminalFailure: String?
 
     var isRecording: Bool { queue.sync { pending || writer != nil } }
 
@@ -30,6 +31,7 @@ final class FrameRecorder: @unchecked Sendable {
             pending = true
             blockedImage = nil
             blockedImageKey = ""
+            terminalFailure = nil
         }
     }
 
@@ -75,7 +77,9 @@ final class FrameRecorder: @unchecked Sendable {
             guard let self, !finishing else { return }
             pending = false
             guard let writer else {
-                DispatchQueue.main.async { completion(nil, nil) }
+                let failure = terminalFailure
+                terminalFailure = nil
+                DispatchQueue.main.async { completion(nil, failure) }
                 return
             }
             finishing = true
@@ -87,6 +91,7 @@ final class FrameRecorder: @unchecked Sendable {
                     let failureMessage = writer.error.map { "Recording failed: \($0.localizedDescription)" }
                     if !succeeded, let url { try? FileManager.default.removeItem(at: url) }
                     self.clearWriterState()
+                    self.terminalFailure = nil
                     DispatchQueue.main.async {
                         completion(succeeded ? url : nil, succeeded ? nil : (failureMessage ?? "Recording failed while finalizing the video."))
                     }
@@ -152,11 +157,13 @@ final class FrameRecorder: @unchecked Sendable {
 
     private func failRecording(_ error: Error) {
         let url = outputURL
+        let message = "Recording failed: \(error.localizedDescription)"
+        terminalFailure = message
         writer?.cancelWriting()
         clearWriterState()
         if let url { try? FileManager.default.removeItem(at: url) }
         DispatchQueue.main.async { [weak self] in
-            self?.onError?("Recording failed: \(error.localizedDescription)")
+            self?.onError?(message)
         }
     }
 

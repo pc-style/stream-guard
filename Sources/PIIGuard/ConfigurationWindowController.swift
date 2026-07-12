@@ -29,10 +29,13 @@ final class ConfigurationWindowController: NSWindowController, NSWindowDelegate 
     private let cursorCheckbox = NSButton(checkboxWithTitle: "Include cursor", target: nil, action: nil)
     private let phraseField = NSTextField()
     private let phrasePopup = NSPopUpButton()
+    private let newPhraseButton = NSButton(title: "New", target: nil, action: nil)
     private let savePhraseButton = NSButton(title: "Add", target: nil, action: nil)
     private let removePhraseButton = NSButton(title: "Remove", target: nil, action: nil)
     private let safeButton = NSButton(title: "It's safe now", target: nil, action: nil)
     private let recordButton = NSButton(title: "Record", target: nil, action: nil)
+    private var editingPhraseIndex: Int?
+    private var isRunning = false
 
     init(settings: Settings) {
         self.settings = settings
@@ -64,7 +67,6 @@ final class ConfigurationWindowController: NSWindowController, NSWindowDelegate 
 
         startButton.target = self
         startButton.action = #selector(toggleCapture)
-        startButton.keyEquivalent = "\r"
         startButton.bezelStyle = .rounded
         let previewButton = NSButton(title: "Open preview", target: self, action: #selector(openPreview))
         let primaryActions = NSStackView(views: [startButton, previewButton])
@@ -103,10 +105,12 @@ final class ConfigurationWindowController: NSWindowController, NSWindowDelegate 
         detectionGrid.rowSpacing = 6
 
         phraseField.placeholderString = "Add or edit a sensitive phrase"
+        phraseField.target = self; phraseField.action = #selector(savePhrase)
         phrasePopup.target = self; phrasePopup.action = #selector(selectPhrase)
+        newPhraseButton.target = self; newPhraseButton.action = #selector(beginNewPhrase)
         savePhraseButton.target = self; savePhraseButton.action = #selector(savePhrase)
         removePhraseButton.target = self; removePhraseButton.action = #selector(removePhrase)
-        let phrasePickerRow = NSStackView(views: [phrasePopup, removePhraseButton])
+        let phrasePickerRow = NSStackView(views: [phrasePopup, newPhraseButton, removePhraseButton])
         phrasePickerRow.orientation = .horizontal; phrasePickerRow.spacing = 8
         let phraseEditRow = NSStackView(views: [phraseField, savePhraseButton])
         phraseEditRow.orientation = .horizontal; phraseEditRow.spacing = 8
@@ -125,7 +129,7 @@ final class ConfigurationWindowController: NSWindowController, NSWindowDelegate 
         [
             labeledRow("Delay", delayPopup), labeledRow("Resolution", resolutionPopup),
             labeledRow("Frame rate", fpsPopup), cursorCheckbox, labeledRow("Clear policy", modePopup),
-            sectionTitle("Detection"), detectionGrid, phrasePickerRow, phraseEditRow, secondaryActions
+            sectionTitle("Detection"), detectionGrid, phrasePickerRow, phraseEditRow
         ].forEach(advancedStack.addArrangedSubview)
         advancedStack.isHidden = true
 
@@ -137,7 +141,7 @@ final class ConfigurationWindowController: NSWindowController, NSWindowDelegate 
         let stack = NSStackView(views: [
             title, subtitle, separator(), sectionTitle("1. Grant permissions"), permissionRow,
             sectionTitle("2. Start and share the preview"), primaryActions,
-            protectionLabel, statusLabel, separator(), advancedButton, advancedStack
+            protectionLabel, statusLabel, secondaryActions, separator(), advancedButton, advancedStack
         ])
         stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 12
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -171,12 +175,13 @@ final class ConfigurationWindowController: NSWindowController, NSWindowDelegate 
     }
 
     func setRunning(_ running: Bool, status: String) {
+        isRunning = running
         startButton.title = running ? "Stop protected preview" : "Start protected preview"
         statusLabel.stringValue = status
     }
 
     func setProtectionState(blocked: Bool, reason: String) {
-        protectionLabel.stringValue = blocked ? "Protection: preview blocked — \(reason)" : "Protection: preview safe to share"
+        protectionLabel.stringValue = blocked ? "Protection: preview blocked: \(reason)" : "Protection: preview safe to share"
         protectionLabel.textColor = blocked ? .systemOrange : .systemGreen
     }
 
@@ -200,7 +205,7 @@ final class ConfigurationWindowController: NSWindowController, NSWindowDelegate 
         return false
     }
 
-    @objc private func toggleCapture() { startButton.title.hasPrefix("Stop") ? onStop?() : onStart?() }
+    @objc private func toggleCapture() { isRunning ? onStop?() : onStart?() }
     @objc private func openPreview() { onOpenPreview?() }
     @objc private func openPermissions() { onOpenPermissions?() }
     @objc private func manualClear() { onManualClear?() }
@@ -235,22 +240,31 @@ final class ConfigurationWindowController: NSWindowController, NSWindowDelegate 
     }
     @objc private func selectPhrase() {
         guard phrasePopup.indexOfSelectedItem >= 0, phrasePopup.indexOfSelectedItem < settings.customPhrases.count else { return }
-        phraseField.stringValue = settings.customPhrases[phrasePopup.indexOfSelectedItem]
+        editingPhraseIndex = phrasePopup.indexOfSelectedItem
+        phraseField.stringValue = settings.customPhrases[editingPhraseIndex!]
         savePhraseButton.title = "Save"
     }
-    @objc private func savePhrase() {
-        let phrase = phraseField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !phrase.isEmpty else { return }
-        var phrases = settings.customPhrases
-        if savePhraseButton.title == "Save", phrasePopup.indexOfSelectedItem >= 0, phrasePopup.indexOfSelectedItem < phrases.count {
-            phrases[phrasePopup.indexOfSelectedItem] = phrase
-        } else if !phrases.contains(phrase) {
-            phrases.append(phrase)
-        }
-        settings.customPhrases = phrases
+    @objc private func beginNewPhrase() {
+        editingPhraseIndex = nil
         phraseField.stringValue = ""
-        updatePhraseControls()
-        onSettingsChanged?()
+        savePhraseButton.title = "Add"
+        window?.makeFirstResponder(phraseField)
+    }
+    @objc private func savePhrase() {
+        switch CustomPhraseEditor.update(
+            settings.customPhrases,
+            with: phraseField.stringValue,
+            editing: editingPhraseIndex
+        ) {
+        case .changed(let phrases):
+            settings.customPhrases = phrases
+            phraseField.stringValue = ""
+            editingPhraseIndex = nil
+            updatePhraseControls()
+            onSettingsChanged?()
+        case .unchanged, .duplicate:
+            return
+        }
     }
     @objc private func removePhrase() {
         let index = phrasePopup.indexOfSelectedItem
@@ -259,6 +273,7 @@ final class ConfigurationWindowController: NSWindowController, NSWindowDelegate 
         phrases.remove(at: index)
         settings.customPhrases = phrases
         phraseField.stringValue = ""
+        editingPhraseIndex = nil
         updatePhraseControls()
         onSettingsChanged?()
     }
@@ -268,6 +283,7 @@ final class ConfigurationWindowController: NSWindowController, NSWindowDelegate 
         phrasePopup.addItems(withTitles: settings.customPhrases)
         phrasePopup.isEnabled = !settings.customPhrases.isEmpty
         removePhraseButton.isEnabled = !settings.customPhrases.isEmpty
+        newPhraseButton.isEnabled = true
         savePhraseButton.title = "Add"
     }
     private func wrappingLabel(_ text: String) -> NSTextField {

@@ -9,15 +9,17 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
       - name: Build app and CLI
         run: swift build --target PIIGuard && swift build --target PIIGuardCLI
       - name: Run Swift tests
-        run: swift test
+        run: ./scripts/test.sh
       - name: Run focused verifier
         run: swift run PIIGuardVerifier
       - name: Check sensitive stdin path
         run: printf '%s' 'contact ci@example.com' | swift run pii-guard check --stdin | grep -q 'Email'
       - name: Validate shell scripts
-        run: bash -n install.sh && sh -n scripts/package.sh
+        run: bash -n install.sh && sh -n scripts/package.sh && sh -n scripts/test.sh
       - name: Package and verify app bundle
         run: ./scripts/package.sh

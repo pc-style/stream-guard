@@ -146,8 +146,19 @@ final class AccessibilityScanner: @unchecked Sendable {
             var output: [ScreenDetection] = []
             var visited = 0
             var complete = true
+            var foundReadableText = false
+            var processedTexts: Set<String> = []
             for window in windows {
-                walk(window, options: options, output: &output, visited: &visited, complete: &complete, deadline: deadline)
+                walk(
+                    window,
+                    options: options,
+                    output: &output,
+                    visited: &visited,
+                    complete: &complete,
+                    foundReadableText: &foundReadableText,
+                    processedTexts: &processedTexts,
+                    deadline: deadline
+                )
                 if !complete { break }
             }
             guard complete else {
@@ -157,6 +168,10 @@ final class AccessibilityScanner: @unchecked Sendable {
                 return .inconclusive(reason)
             }
             if !output.isEmpty { return .detected(output, app: appName) }
+            guard foundReadableText else {
+                if coverageFailure == nil { coverageFailure = "No readable Accessibility text in \(appName)" }
+                continue
+            }
             scannedApps.append(appName)
         }
 
@@ -193,13 +208,13 @@ final class AccessibilityScanner: @unchecked Sendable {
         var seen: Set<pid_t> = []
         var apps: [NSRunningApplication] = []
         for info in windowInfo {
-            guard let layer = info[kCGWindowLayer as String] as? Int, layer == 0,
-                  let pid = info[kCGWindowOwnerPID as String] as? pid_t, pid != ownPID,
+            guard let pid = info[kCGWindowOwnerPID as String] as? pid_t, pid != ownPID,
                   !seen.contains(pid),
                   let bounds = info[kCGWindowBounds as String] as? [String: Any],
                   let frame = CGRect(dictionaryRepresentation: bounds as CFDictionary),
                   frame.width > 1, frame.height > 1, captureBounds.intersects(frame),
-                  let app = NSRunningApplication(processIdentifier: pid), !app.isHidden else { continue }
+                  let app = NSRunningApplication(processIdentifier: pid),
+                  app.activationPolicy != .prohibited, !app.isHidden else { continue }
             seen.insert(pid)
             apps.append(app)
         }
@@ -212,6 +227,8 @@ final class AccessibilityScanner: @unchecked Sendable {
         output: inout [ScreenDetection],
         visited: inout Int,
         complete: inout Bool,
+        foundReadableText: inout Bool,
+        processedTexts: inout Set<String>,
         deadline: TimeInterval
     ) {
         guard complete else { return }
@@ -227,16 +244,22 @@ final class AccessibilityScanner: @unchecked Sendable {
             return
         }
 
-        var textValue: CFTypeRef?
-        let textResult = AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &textValue)
-        if textResult == .success {
-            if let text = textValue as? String {
+        for attribute in [kAXValueAttribute, kAXTitleAttribute, kAXDescriptionAttribute] {
+            var textValue: CFTypeRef?
+            let textResult = AXUIElementCopyAttributeValue(element, attribute as CFString, &textValue)
+            if textResult == .success {
+                guard let text = textValue as? String else { continue }
                 guard text.count <= 20_000 else { complete = false; return }
-                output.append(contentsOf: engine.detect(in: text, options: options).map { ScreenDetection(kind: $0.kind) })
+                if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    foundReadableText = true
+                }
+                if processedTexts.insert(text).inserted {
+                    output.append(contentsOf: engine.detect(in: text, options: options).map { ScreenDetection(kind: $0.kind) })
+                }
+            } else if textResult != .noValue && textResult != .attributeUnsupported {
+                complete = false
+                return
             }
-        } else if textResult != .noValue && textResult != .attributeUnsupported {
-            complete = false
-            return
         }
 
         var childrenValue: CFTypeRef?
@@ -244,7 +267,16 @@ final class AccessibilityScanner: @unchecked Sendable {
         if childrenResult == .success, let children = childrenValue as? [AXUIElement] {
             guard children.count <= 300 else { complete = false; return }
             for child in children {
-                walk(child, options: options, output: &output, visited: &visited, complete: &complete, deadline: deadline)
+                walk(
+                    child,
+                    options: options,
+                    output: &output,
+                    visited: &visited,
+                    complete: &complete,
+                    foundReadableText: &foundReadableText,
+                    processedTexts: &processedTexts,
+                    deadline: deadline
+                )
                 if !complete { break }
             }
         } else if childrenResult != .noValue && childrenResult != .attributeUnsupported {
