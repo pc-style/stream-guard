@@ -8,13 +8,7 @@ Everything runs locally. PII Guard uses ScreenCaptureKit for the delayed preview
 
 PII Guard isn't signed with a paid Apple Developer certificate yet, so it has to be built locally. You only need macOS 13 or newer and Xcode Command Line Tools, not full Xcode.
 
-Install the Command Line Tools once:
-
-```sh
-xcode-select --install
-```
-
-Then download, build, install, clean up, and launch PII Guard with one command:
+Download, set up missing Command Line Tools, build, install, clean up, and launch PII Guard with one command:
 
 ```sh
 curl -fsSL https://install.pcstyle.dev/stream-guard.sh | bash
@@ -45,3 +39,7 @@ The packaged app is written to `dist/PII Guard.app`. The companion CLI is writte
 ## Privacy
 
 PII Guard processes capture frames and Accessibility text on your Mac. It has no analytics, accounts, cloud processing, OCR, or remote API calls. Apps that don't expose readable Accessibility text are treated as unsupported, so check the status shown in the app before sharing.
+
+## Website
+
+The launch site is plain HTML, CSS, and JavaScript at the repository root. Vercel can deploy it without a build command.

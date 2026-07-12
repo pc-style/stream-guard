@@ -17,17 +17,30 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
   exit 1
 fi
 
+if ! xcode-select -p >/dev/null 2>&1; then
+  echo "Xcode Command Line Tools are required. Opening Apple's installer..."
+  xcode-select --install >/dev/null 2>&1 || true
+  echo "Finish the installation window. This script will continue automatically."
+
+  for _ in {1..360}; do
+    if xcode-select -p >/dev/null 2>&1; then
+      break
+    fi
+    sleep 5
+  done
+fi
+
+if ! xcode-select -p >/dev/null 2>&1; then
+  echo "Command Line Tools installation didn't finish. Run this command again when it is complete." >&2
+  exit 1
+fi
+
 for command in git swift codesign plutil ditto; do
   if ! command -v "$command" >/dev/null 2>&1; then
     echo "Missing $command. Install Xcode Command Line Tools with: xcode-select --install" >&2
     exit 1
   fi
 done
-
-if ! xcode-select -p >/dev/null 2>&1; then
-  echo "Install Xcode Command Line Tools first: xcode-select --install" >&2
-  exit 1
-fi
 
 echo "Downloading PII Guard..."
 git clone --depth 1 --quiet "$REPO_URL" "$WORK_DIR/source"
