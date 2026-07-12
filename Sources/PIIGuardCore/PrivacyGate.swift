@@ -1,5 +1,11 @@
 import Foundation
 
+public enum PrivacyScanResult: Equatable {
+    case clean
+    case detected(String)
+    case inconclusive(String)
+}
+
 public final class PrivacyGate {
     public private(set) var isBlocked = true
     public private(set) var reason = "Waiting for a privacy check"
@@ -13,25 +19,20 @@ public final class PrivacyGate {
 
     public init() {}
 
-    public func update(hasPII: Bool, detectionReason: String = "PII detected", unavailableReason: String? = nil) {
-        if let unavailableReason {
-            isBlocked = true
-            reason = unavailableReason
-            cleanChecks = 0
-        } else if hasPII {
-            isBlocked = true
-            reason = detectionReason
-            cleanChecks = 0
+    public func update(_ result: PrivacyScanResult) {
+        switch result {
+        case .inconclusive(let reason):
+            invalidateClearance(reason)
+        case .detected(let reason):
+            invalidateClearance(reason)
             detectedSinceClear = true
-            pendingManualApproval = false
-            pendingClearanceDelay = false
-        } else if pendingClearanceDelay {
+        case .clean where pendingClearanceDelay:
             isBlocked = true
             reason = "Clean checks passed · waiting for stream delay"
-        } else if pendingManualApproval {
+        case .clean where pendingManualApproval:
             isBlocked = true
             reason = "Manual clearance required"
-        } else if isBlocked {
+        case .clean where isBlocked:
             cleanChecks += 1
             reason = "Checking for PII · \(cleanChecks)/\(requiredCleanChecks) clean bursts"
             if cleanChecks >= requiredCleanChecks {
@@ -42,7 +43,7 @@ public final class PrivacyGate {
                     finishClearance()
                 }
             }
-        } else {
+        case .clean:
             reason = "Protected"
         }
     }
@@ -63,6 +64,7 @@ public final class PrivacyGate {
     }
 
     public func approveManualClearance() {
+        guard pendingManualApproval else { return }
         isBlocked = false
         reason = "Protected"
         cleanChecks = 0
@@ -72,9 +74,17 @@ public final class PrivacyGate {
     }
 
     public func requireManualClearance() {
+        guard pendingManualApproval else { return }
         isBlocked = true
         reason = "Manual clearance required"
-        pendingManualApproval = true
+    }
+
+    private func invalidateClearance(_ reason: String) {
+        isBlocked = true
+        self.reason = reason
+        cleanChecks = 0
+        pendingManualApproval = false
+        pendingClearanceDelay = false
     }
 
     private func finishClearance() {

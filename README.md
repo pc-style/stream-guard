@@ -8,20 +8,24 @@ Everything runs locally. PII Guard uses ScreenCaptureKit for the delayed preview
 
 PII Guard isn't signed with a paid Apple Developer certificate yet, so it has to be built locally. You only need macOS 13 or newer and Xcode Command Line Tools, not full Xcode.
 
-Download, set up missing Command Line Tools, build, install, clean up, and launch PII Guard with one command:
+Resolve the current main-branch commit once, build it locally, verify the staged app, replace the installed app with rollback protection, and launch PII Guard with one command:
 
 ```sh
 curl -fsSL https://install.pcstyle.dev/stream-guard.sh | bash
 ```
 
-The app is installed at `/Applications/PII Guard.app`. On first launch, allow Accessibility and Screen Recording when macOS asks. If permission stays stuck after reinstalling, remove older PII Guard entries from both privacy lists and open the app again.
+The installer prints the exact commit it resolved before building. For a reproducible install, download the script and run it with `PII_GUARD_REF=<40-character-commit-sha>`.
+
+The app is installed at `/Applications/PII Guard.app`. On first launch, use **Open Privacy Settings** until Accessibility and Screen Recording both show as allowed, then start the protected preview. If permission stays stuck after reinstalling, remove older PII Guard entries from both privacy lists and open the app again.
 
 ## Use it
 
 1. Open PII Guard and grant both permissions.
-2. Pick the delay, resolution, FPS, detection rules, and clearance mode.
-3. Start the preview.
+2. Start the protected preview; the default tuning is suitable for normal use.
+3. Wait until both the controls and preview say the preview is safe to share.
 4. Share the **PII Guard Preview** window in Zoom, Meet, OBS, or another streaming app.
+
+Delay, resolution, frame rate, detection rules, clearance mode, and editable custom phrases remain available under **Show advanced settings**. Closing the controls does not close or hide the preview.
 
 The app can record the protected delayed preview to MP4. Recordings are saved wherever you choose in the save dialog.
 
@@ -30,11 +34,18 @@ The app can record the protected delayed preview to MP4. Recordings are saved wh
 ```sh
 git clone https://github.com/pc-style/stream-guard.git
 cd stream-guard
+./scripts/test.sh
 swift run PIIGuardVerifier
 ./scripts/package.sh
 ```
 
-The packaged app is written to `dist/PII Guard.app`. The companion CLI is written to `dist/pii-guard` and supports `status`, `start`, `stop`, `permission`, and `check <text>`.
+`scripts/test.sh` runs `swift test`, adding the framework search path and rpaths the Command Line Tools need for Swift Testing. With full Xcode selected it is equivalent to plain `swift test`.
+
+The packaged app is written to `dist/PII Guard.app`. The companion CLI is written to `dist/pii-guard` and supports `status`, `start`, `stop`, `permission`, `check <text>`, and `check --stdin`. Prefer stdin for sensitive values so they do not appear in shell history or process arguments:
+
+```sh
+printf '%s' 'private text' | dist/pii-guard check --stdin
+```
 
 ## Privacy
 

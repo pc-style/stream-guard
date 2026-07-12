@@ -14,7 +14,8 @@ let package = Package(
         .target(name: "PIIGuardCore"),
         .executableTarget(name: "PIIGuard", dependencies: ["PIIGuardCore"]),
         .executableTarget(name: "PIIGuardCLI", dependencies: ["PIIGuardCore"]),
-        .executableTarget(name: "PIIGuardVerifier", dependencies: ["PIIGuardCore"])
+        .executableTarget(name: "PIIGuardVerifier", dependencies: ["PIIGuardCore"]),
+        .testTarget(name: "PIIGuardCoreTests", dependencies: ["PIIGuardCore"])
     ],
     swiftLanguageModes: [.v5]
 )

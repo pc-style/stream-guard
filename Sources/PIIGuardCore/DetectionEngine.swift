@@ -33,13 +33,15 @@ public struct DetectionOptions: Sendable {
 }
 
 public struct DetectionEngine: Sendable {
-    private static let patterns: [(SensitiveKind, String)] = [
-        (.email, #"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b"#),
+    private static let regexes: [(SensitiveKind, NSRegularExpression)] = [
+        (SensitiveKind.email, #"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b"#),
         (.phone, #"(?<!\w)(?:\+?\d[\d ()-]{7,}\d)(?!\w)"#),
         (.creditCard, #"(?<!\d)(?:\d[ -]?){13,19}(?!\d)"#),
         (.nationalID, #"(?<!\d)\d{11}(?!\d)"#),
         (.ipAddress, #"(?<![\d.])(?:\d{1,3}\.){3}\d{1,3}(?![\d.])"#)
-    ]
+    ].compactMap { kind, pattern in
+        (try? NSRegularExpression(pattern: pattern)).map { (kind, $0) }
+    }
 
     public init() {}
 
@@ -48,8 +50,7 @@ public struct DetectionEngine: Sendable {
         let fullRange = NSRange(text.startIndex..<text.endIndex, in: text)
         var results: [Detection] = []
 
-        for (kind, pattern) in Self.patterns where options.enabledKinds.contains(kind) {
-            guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
+        for (kind, regex) in Self.regexes where options.enabledKinds.contains(kind) {
             for match in regex.matches(in: text, range: fullRange) {
                 guard isValid(match: match, kind: kind, text: text) else { continue }
                 results.append(Detection(range: match.range, kind: kind))
