@@ -251,19 +251,20 @@ final class ConfigurationWindowController: NSWindowController, NSWindowDelegate 
         window?.makeFirstResponder(phraseField)
     }
     @objc private func savePhrase() {
-        let phrase = phraseField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !phrase.isEmpty else { return }
-        var phrases = settings.customPhrases
-        if let index = editingPhraseIndex, index >= 0, index < phrases.count {
-            phrases[index] = phrase
-        } else if !phrases.contains(phrase) {
-            phrases.append(phrase)
+        switch CustomPhraseEditor.update(
+            settings.customPhrases,
+            with: phraseField.stringValue,
+            editing: editingPhraseIndex
+        ) {
+        case .changed(let phrases):
+            settings.customPhrases = phrases
+            phraseField.stringValue = ""
+            editingPhraseIndex = nil
+            updatePhraseControls()
+            onSettingsChanged?()
+        case .unchanged, .duplicate:
+            return
         }
-        settings.customPhrases = phrases
-        phraseField.stringValue = ""
-        editingPhraseIndex = nil
-        updatePhraseControls()
-        onSettingsChanged?()
     }
     @objc private func removePhrase() {
         let index = phrasePopup.indexOfSelectedItem

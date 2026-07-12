@@ -25,6 +25,24 @@ check(custom.first?.kind == .custom, "case-insensitive custom phrase")
 let disabled = DetectionOptions(enabledKinds: [.email], customPhrases: ["nightjar"])
 check(engine.detect(in: "NIGHTJAR", options: disabled).isEmpty, "disabled custom phrase")
 
+check(
+    CustomPhraseEditor.update(["Café"], with: " CAFE ", editing: nil) == .duplicate,
+    "duplicate custom phrase add is case and diacritic insensitive"
+)
+check(
+    CustomPhraseEditor.update(["Nightjar", "Café"], with: "NIGHTJAR", editing: 1) == .duplicate,
+    "duplicate custom phrase edit is rejected"
+)
+check(
+    CustomPhraseEditor.update(["Nightjar", "Café"], with: " Skylark ", editing: 1)
+        == .changed(["Nightjar", "Skylark"]),
+    "valid custom phrase edit changes only its selected value"
+)
+check(
+    CustomPhraseEditor.update(["Nightjar"], with: "Nightjar", editing: 0) == .unchanged,
+    "unchanged custom phrase edit does not report a settings change"
+)
+
 for _ in 0..<20 {
     check(engine.detect(in: "contact cache@example.com", options: DetectionOptions()).first?.kind == .email, "cached regex detection remains stable")
 }

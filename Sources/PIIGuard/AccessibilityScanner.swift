@@ -147,6 +147,7 @@ final class AccessibilityScanner: @unchecked Sendable {
             var visited = 0
             var complete = true
             var foundReadableText = false
+            var processedTexts: Set<String> = []
             for window in windows {
                 walk(
                     window,
@@ -155,6 +156,7 @@ final class AccessibilityScanner: @unchecked Sendable {
                     visited: &visited,
                     complete: &complete,
                     foundReadableText: &foundReadableText,
+                    processedTexts: &processedTexts,
                     deadline: deadline
                 )
                 if !complete { break }
@@ -226,6 +228,7 @@ final class AccessibilityScanner: @unchecked Sendable {
         visited: inout Int,
         complete: inout Bool,
         foundReadableText: inout Bool,
+        processedTexts: inout Set<String>,
         deadline: TimeInterval
     ) {
         guard complete else { return }
@@ -241,19 +244,22 @@ final class AccessibilityScanner: @unchecked Sendable {
             return
         }
 
-        var textValue: CFTypeRef?
-        let textResult = AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &textValue)
-        if textResult == .success {
-            if let text = textValue as? String {
+        for attribute in [kAXValueAttribute, kAXTitleAttribute, kAXDescriptionAttribute] {
+            var textValue: CFTypeRef?
+            let textResult = AXUIElementCopyAttributeValue(element, attribute as CFString, &textValue)
+            if textResult == .success {
+                guard let text = textValue as? String else { continue }
                 guard text.count <= 20_000 else { complete = false; return }
                 if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     foundReadableText = true
                 }
-                output.append(contentsOf: engine.detect(in: text, options: options).map { ScreenDetection(kind: $0.kind) })
+                if processedTexts.insert(text).inserted {
+                    output.append(contentsOf: engine.detect(in: text, options: options).map { ScreenDetection(kind: $0.kind) })
+                }
+            } else if textResult != .noValue && textResult != .attributeUnsupported {
+                complete = false
+                return
             }
-        } else if textResult != .noValue && textResult != .attributeUnsupported {
-            complete = false
-            return
         }
 
         var childrenValue: CFTypeRef?
@@ -268,6 +274,7 @@ final class AccessibilityScanner: @unchecked Sendable {
                     visited: &visited,
                     complete: &complete,
                     foundReadableText: &foundReadableText,
+                    processedTexts: &processedTexts,
                     deadline: deadline
                 )
                 if !complete { break }
