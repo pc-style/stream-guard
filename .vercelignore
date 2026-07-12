@@ -1,0 +1,13 @@
+.build/
+.codex/
+.git/
+dist/
+Resources/
+Sources/
+script/
+scripts/
+AGENTS.md
+Package.swift
+README.md
+install.sh
+test-page.html
