@@ -58,18 +58,14 @@ final class ConfigurationWindowController: NSWindowController, NSWindowDelegate 
         let subtitle = wrappingLabel("Share only the PII Guard Preview window. The preview stays black until capture is delayed and visible text passes the privacy checks.")
 
         let permissionButton = NSButton(title: "Open Privacy Settings", target: self, action: #selector(openPermissions))
-        let permissionRow = NSStackView(views: [permissionLabel, permissionButton])
-        permissionRow.orientation = .horizontal
-        permissionRow.spacing = 10
+        let permissionRow = hStack([permissionLabel, permissionButton])
 
         startButton.target = self
         startButton.action = #selector(toggleCapture)
         startButton.keyEquivalent = "\r"
         startButton.bezelStyle = .rounded
         let previewButton = NSButton(title: "Open preview", target: self, action: #selector(openPreview))
-        let primaryActions = NSStackView(views: [startButton, previewButton])
-        primaryActions.orientation = .horizontal
-        primaryActions.spacing = 10
+        let primaryActions = hStack([startButton, previewButton])
 
         protectionLabel.font = .systemFont(ofSize: 15, weight: .semibold)
         statusLabel.font = .systemFont(ofSize: 13, weight: .regular)
@@ -106,18 +102,15 @@ final class ConfigurationWindowController: NSWindowController, NSWindowDelegate 
         phrasePopup.target = self; phrasePopup.action = #selector(selectPhrase)
         savePhraseButton.target = self; savePhraseButton.action = #selector(savePhrase)
         removePhraseButton.target = self; removePhraseButton.action = #selector(removePhrase)
-        let phrasePickerRow = NSStackView(views: [phrasePopup, removePhraseButton])
-        phrasePickerRow.orientation = .horizontal; phrasePickerRow.spacing = 8
-        let phraseEditRow = NSStackView(views: [phraseField, savePhraseButton])
-        phraseEditRow.orientation = .horizontal; phraseEditRow.spacing = 8
+        let phrasePickerRow = hStack([phrasePopup, removePhraseButton], spacing: 8)
+        let phraseEditRow = hStack([phraseField, savePhraseButton], spacing: 8)
         phraseField.setContentHuggingPriority(.defaultLow, for: .horizontal)
         updatePhraseControls()
 
         safeButton.target = self; safeButton.action = #selector(manualClear)
         safeButton.isHidden = true
         recordButton.target = self; recordButton.action = #selector(toggleRecording)
-        let secondaryActions = NSStackView(views: [recordButton, safeButton])
-        secondaryActions.orientation = .horizontal; secondaryActions.spacing = 10
+        let secondaryActions = hStack([recordButton, safeButton])
 
         advancedStack.orientation = .vertical
         advancedStack.alignment = .leading
@@ -234,16 +227,16 @@ final class ConfigurationWindowController: NSWindowController, NSWindowDelegate 
         settings.setKind(kind, enabled: sender.state == .on); onSettingsChanged?()
     }
     @objc private func selectPhrase() {
-        guard phrasePopup.indexOfSelectedItem >= 0, phrasePopup.indexOfSelectedItem < settings.customPhrases.count else { return }
-        phraseField.stringValue = settings.customPhrases[phrasePopup.indexOfSelectedItem]
+        guard let index = selectedPhraseIndex else { return }
+        phraseField.stringValue = settings.customPhrases[index]
         savePhraseButton.title = "Save"
     }
     @objc private func savePhrase() {
         let phrase = phraseField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !phrase.isEmpty else { return }
         var phrases = settings.customPhrases
-        if savePhraseButton.title == "Save", phrasePopup.indexOfSelectedItem >= 0, phrasePopup.indexOfSelectedItem < phrases.count {
-            phrases[phrasePopup.indexOfSelectedItem] = phrase
+        if savePhraseButton.title == "Save", let index = selectedPhraseIndex {
+            phrases[index] = phrase
         } else if !phrases.contains(phrase) {
             phrases.append(phrase)
         }
@@ -253,14 +246,18 @@ final class ConfigurationWindowController: NSWindowController, NSWindowDelegate 
         onSettingsChanged?()
     }
     @objc private func removePhrase() {
-        let index = phrasePopup.indexOfSelectedItem
-        guard index >= 0, index < settings.customPhrases.count else { return }
+        guard let index = selectedPhraseIndex else { return }
         var phrases = settings.customPhrases
         phrases.remove(at: index)
         settings.customPhrases = phrases
         phraseField.stringValue = ""
         updatePhraseControls()
         onSettingsChanged?()
+    }
+
+    private var selectedPhraseIndex: Int? {
+        let index = phrasePopup.indexOfSelectedItem
+        return settings.customPhrases.indices.contains(index) ? index : nil
     }
 
     private func updatePhraseControls() {
@@ -278,7 +275,14 @@ final class ConfigurationWindowController: NSWindowController, NSWindowDelegate 
     }
     private func separator() -> NSBox { let box = NSBox(); box.boxType = .separator; return box }
     private func labeledRow(_ label: String, _ control: NSView) -> NSStackView {
-        let title = NSTextField(labelWithString: label); title.widthAnchor.constraint(equalToConstant: 100).isActive = true
-        let row = NSStackView(views: [title, control]); row.orientation = .horizontal; row.spacing = 12; return row
+        let title = NSTextField(labelWithString: label)
+        title.widthAnchor.constraint(equalToConstant: 100).isActive = true
+        return hStack([title, control], spacing: 12)
+    }
+    private func hStack(_ views: [NSView], spacing: CGFloat = 10) -> NSStackView {
+        let stack = NSStackView(views: views)
+        stack.orientation = .horizontal
+        stack.spacing = spacing
+        return stack
     }
 }

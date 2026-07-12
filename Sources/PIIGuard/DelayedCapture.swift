@@ -28,17 +28,9 @@ final class DelayedCapture: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
     private var bufferPolicy = DelayBufferPolicy(width: 1280, height: 720, delaySeconds: 2, fps: 10)
     private var lastBufferedAt: TimeInterval?
 
-    var targetBounds: CGRect? {
-        stateLock.lock()
-        defer { stateLock.unlock() }
-        return targetBoundsStorage
-    }
+    var targetBounds: CGRect? { withState { targetBoundsStorage } }
 
-    var isRunning: Bool {
-        stateLock.lock()
-        defer { stateLock.unlock() }
-        return stream != nil && targetBoundsStorage != nil
-    }
+    var isRunning: Bool { withState { stream != nil && targetBoundsStorage != nil } }
 
     func start(delaySeconds: Double, fps: Int, width: Int, height: Int, showsCursor: Bool) async throws {
         let (generation, previousStream) = beginLifecycleTransition()
@@ -116,16 +108,13 @@ final class DelayedCapture: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
     }
 
     func stream(_ stream: SCStream, didStopWithError error: Error) {
-        stateLock.lock()
-        guard self.stream === stream else {
-            stateLock.unlock()
-            return
-        }
-        self.stream = nil
-        targetBoundsStorage = nil
-        lifecycleGeneration &+= 1
-        let generation = lifecycleGeneration
-        stateLock.unlock()
+        guard let generation: UInt64 = withState({
+            guard self.stream === stream else { return nil }
+            self.stream = nil
+            targetBoundsStorage = nil
+            lifecycleGeneration &+= 1
+            return lifecycleGeneration
+        }) else { return }
 
         outputQueue.async { [weak self] in
             guard let self else { return }
@@ -164,50 +153,55 @@ final class DelayedCapture: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
     }
 
     private func beginLifecycleTransition() -> (generation: UInt64, previousStream: SCStream?) {
-        stateLock.lock()
-        defer { stateLock.unlock() }
-        lifecycleGeneration &+= 1
-        let previousStream = stream
-        stream = nil
-        targetBoundsStorage = nil
-        return (lifecycleGeneration, previousStream)
+        withState {
+            lifecycleGeneration &+= 1
+            let previousStream = stream
+            stream = nil
+            targetBoundsStorage = nil
+            return (lifecycleGeneration, previousStream)
+        }
     }
 
     private func isCurrent(_ generation: UInt64) -> Bool {
-        stateLock.lock()
-        defer { stateLock.unlock() }
-        return lifecycleGeneration == generation
+        withState { lifecycleGeneration == generation }
     }
 
     private func install(_ stream: SCStream, for generation: UInt64) -> Bool {
-        stateLock.lock()
-        defer { stateLock.unlock() }
-        guard lifecycleGeneration == generation else { return false }
-        self.stream = stream
-        return true
+        withState {
+            guard lifecycleGeneration == generation else { return false }
+            self.stream = stream
+            return true
+        }
     }
 
     private func clearInstalledStream(_ stream: SCStream, generation: UInt64) {
-        stateLock.lock()
-        defer { stateLock.unlock() }
-        guard lifecycleGeneration == generation, self.stream === stream else { return }
-        self.stream = nil
-        targetBoundsStorage = nil
+        withState {
+            guard lifecycleGeneration == generation, self.stream === stream else { return }
+            self.stream = nil
+            targetBoundsStorage = nil
+        }
     }
 
     private func setTargetBounds(_ bounds: CGRect, for stream: SCStream, generation: UInt64) -> Bool {
-        stateLock.lock()
-        defer { stateLock.unlock() }
-        guard lifecycleGeneration == generation, self.stream === stream else { return false }
-        targetBoundsStorage = bounds
-        return true
+        withState {
+            guard lifecycleGeneration == generation, self.stream === stream else { return false }
+            targetBoundsStorage = bounds
+            return true
+        }
     }
 
     private func generation(for stream: SCStream) -> UInt64? {
+        withState {
+            guard self.stream === stream else { return nil }
+            return lifecycleGeneration
+        }
+    }
+
+    @discardableResult
+    private func withState<T>(_ body: () -> T) -> T {
         stateLock.lock()
         defer { stateLock.unlock() }
-        guard self.stream === stream else { return nil }
-        return lifecycleGeneration
+        return body()
     }
 }
 

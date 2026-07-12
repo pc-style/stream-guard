@@ -44,29 +44,29 @@ final class AccessibilityScanner: @unchecked Sendable {
         count: Int,
         completion: @escaping (ScanResult) -> Void
     ) {
-        stateLock.lock()
-        let request = Request(
-            generation: generation,
-            options: options,
-            captureBounds: captureBounds,
-            count: max(1, count),
-            completion: completion
-        )
-        if scanInFlight {
-            pendingRequest = request
-            stateLock.unlock()
-            return
+        let (request, shouldExecute) = withState { () -> (Request, Bool) in
+            let request = Request(
+                generation: generation,
+                options: options,
+                captureBounds: captureBounds,
+                count: max(1, count),
+                completion: completion
+            )
+            if scanInFlight {
+                pendingRequest = request
+                return (request, false)
+            }
+            scanInFlight = true
+            return (request, true)
         }
-        scanInFlight = true
-        stateLock.unlock()
-        execute(request)
+        if shouldExecute { execute(request) }
     }
 
     func cancelPendingScans() {
-        stateLock.lock()
-        generation &+= 1
-        pendingRequest = nil
-        stateLock.unlock()
+        withState {
+            generation &+= 1
+            pendingRequest = nil
+        }
     }
 
     private func execute(_ request: Request) {
@@ -74,18 +74,26 @@ final class AccessibilityScanner: @unchecked Sendable {
             guard let self else { return }
             let result = performBurst(request)
 
-            stateLock.lock()
-            let shouldDeliver = request.generation == generation
-            let next = pendingRequest
-            pendingRequest = nil
-            if next == nil { scanInFlight = false }
-            stateLock.unlock()
+            let (shouldDeliver, next) = withState { () -> (Bool, Request?) in
+                let shouldDeliver = request.generation == generation
+                let next = pendingRequest
+                pendingRequest = nil
+                if next == nil { scanInFlight = false }
+                return (shouldDeliver, next)
+            }
 
             if shouldDeliver {
                 DispatchQueue.main.async { request.completion(result) }
             }
             if let next { execute(next) }
         }
+    }
+
+    @discardableResult
+    private func withState<T>(_ body: () -> T) -> T {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return body()
     }
 
     private func performBurst(_ request: Request) -> ScanResult {
@@ -117,6 +125,9 @@ final class AccessibilityScanner: @unchecked Sendable {
         // produce a detection.
         let deadline = ProcessInfo.processInfo.systemUptime + scanTimeout
         var coverageFailure: String?
+        func recordCoverageFailure(_ message: @autoclosure () -> String) {
+            if coverageFailure == nil { coverageFailure = message() }
+        }
         var scannedApps: [String] = []
         for app in apps {
             let appName = app.localizedName ?? "Captured app"
@@ -124,7 +135,7 @@ final class AccessibilityScanner: @unchecked Sendable {
             var windowsValue: CFTypeRef?
             guard AXUIElementCopyAttributeValue(root, kAXWindowsAttribute as CFString, &windowsValue) == .success,
                   let allWindows = windowsValue as? [AXUIElement], !allWindows.isEmpty else {
-                if coverageFailure == nil { coverageFailure = "Accessibility unsupported in \(appName)" }
+                recordCoverageFailure("Accessibility unsupported in \(appName)")
                 continue
             }
             // Only windows on the captured display count toward the window
@@ -135,11 +146,11 @@ final class AccessibilityScanner: @unchecked Sendable {
                 return captureBounds.intersects(frame)
             }
             guard !windows.isEmpty else {
-                if coverageFailure == nil { coverageFailure = "Unable to match \(appName) windows to the captured display" }
+                recordCoverageFailure("Unable to match \(appName) windows to the captured display")
                 continue
             }
             guard windows.count <= maxWindowsPerApp else {
-                if coverageFailure == nil { coverageFailure = "Accessibility window limit exceeded in \(appName)" }
+                recordCoverageFailure("Accessibility window limit exceeded in \(appName)")
                 continue
             }
 
@@ -221,34 +232,30 @@ final class AccessibilityScanner: @unchecked Sendable {
 
         var visibleValue: CFTypeRef?
         let visibleResult = AXUIElementCopyAttributeValue(element, "AXVisible" as CFString, &visibleValue)
+        guard visibleResult == .success || isRecoverable(visibleResult) else { complete = false; return }
         if visibleResult == .success, let visible = visibleValue as? Bool, !visible { return }
-        if visibleResult != .success && visibleResult != .noValue && visibleResult != .attributeUnsupported {
-            complete = false
-            return
-        }
 
         var textValue: CFTypeRef?
         let textResult = AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &textValue)
-        if textResult == .success {
-            if let text = textValue as? String {
-                guard text.count <= 20_000 else { complete = false; return }
-                output.append(contentsOf: engine.detect(in: text, options: options).map { ScreenDetection(kind: $0.kind) })
-            }
-        } else if textResult != .noValue && textResult != .attributeUnsupported {
-            complete = false
-            return
+        guard textResult == .success || isRecoverable(textResult) else { complete = false; return }
+        if textResult == .success, let text = textValue as? String {
+            guard text.count <= 20_000 else { complete = false; return }
+            output.append(contentsOf: engine.detect(in: text, options: options).map { ScreenDetection(kind: $0.kind) })
         }
 
         var childrenValue: CFTypeRef?
         let childrenResult = AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenValue)
+        guard childrenResult == .success || isRecoverable(childrenResult) else { complete = false; return }
         if childrenResult == .success, let children = childrenValue as? [AXUIElement] {
             guard children.count <= 300 else { complete = false; return }
             for child in children {
                 walk(child, options: options, output: &output, visited: &visited, complete: &complete, deadline: deadline)
                 if !complete { break }
             }
-        } else if childrenResult != .noValue && childrenResult != .attributeUnsupported {
-            complete = false
         }
+    }
+
+    private func isRecoverable(_ error: AXError) -> Bool {
+        error == .noValue || error == .attributeUnsupported
     }
 }

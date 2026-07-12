@@ -39,8 +39,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         previewRequested = false
         lifecycleGeneration &+= 1
         scanner.cancelPendingScans()
-        scanTimer?.invalidate()
-        clearTimer?.invalidate()
+        stopScanTimer()
+        stopClearTimer()
         Task { await capture.stop() }
     }
 
@@ -81,8 +81,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             self.previewRequested = false
             self.lifecycleGeneration &+= 1
             self.scanner.cancelPendingScans()
-            self.scanTimer?.invalidate(); self.scanTimer = nil
-            self.clearTimer?.invalidate(); self.clearTimer = nil
+            self.stopScanTimer()
+            self.stopClearTimer()
             self.gate.reset("Capture stopped")
             self.approvalPromptPresented = false
             if self.recorder.isRecording { self.stopRecording() }
@@ -106,8 +106,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         lifecycleGeneration &+= 1
         let generation = lifecycleGeneration
         scanner.cancelPendingScans()
-        scanTimer?.invalidate(); scanTimer = nil
-        clearTimer?.invalidate(); clearTimer = nil
+        stopScanTimer()
+        stopClearTimer()
         gate.requiredCleanChecks = settings.clearMode.requiredChecks(checksPerSecond: burstsPerSecond)
         gate.requiresManualApproval = settings.clearMode.requiresManualApproval
         gate.requiresClearanceDelay = true
@@ -131,17 +131,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     height: size.height,
                     showsCursor: showsCursor
                 )
-                guard previewRequested, lifecycleGeneration == generation else { return }
+                guard isCurrent(generation) else { return }
                 configuration.setRunning(true, status: "Buffering for \(Int(delay)) seconds before checks begin")
                 configuration.refreshPermissions()
                 scheduleScanning(after: delay, generation: generation)
             } catch CaptureError.cancelled {
                 return
             } catch {
-                guard previewRequested, lifecycleGeneration == generation else { return }
+                guard isCurrent(generation) else { return }
                 previewRequested = false
                 scanner.cancelPendingScans()
-                scanTimer?.invalidate(); scanTimer = nil
+                stopScanTimer()
                 gate.reset("Screen Recording permission required")
                 updatePreviewState()
                 configuration.setRunning(false, status: "Screen Recording access is required. Grant it in System Settings, then start again.")
@@ -158,8 +158,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         lifecycleGeneration &+= 1
         scanner.cancelPendingScans()
         if recorder.isRecording { stopRecording() }
-        scanTimer?.invalidate(); scanTimer = nil
-        clearTimer?.invalidate(); clearTimer = nil
+        stopScanTimer()
+        stopClearTimer()
         gate.reset("Preview stopped")
         approvalPromptPresented = false
         updatePreviewState()
@@ -168,12 +168,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func scheduleScanning(after delay: Double, generation: UInt64) {
-        scanTimer?.invalidate()
+        stopScanTimer()
         gate.reset("Filling \(Int(delay))-second buffer")
         updatePreviewState()
         scanTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
             Task { @MainActor in
-                guard let self, self.previewRequested, self.lifecycleGeneration == generation else { return }
+                guard let self, self.isCurrent(generation) else { return }
                 self.startScanning(generation: generation)
             }
         }
@@ -181,12 +181,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func startScanning(generation: UInt64) {
-        guard previewRequested, lifecycleGeneration == generation else { return }
-        scanTimer?.invalidate()
+        guard isCurrent(generation) else { return }
+        stopScanTimer()
         configuration.setRunning(true, status: "Preview running · 3 coalesced scans every 200 ms")
         scanTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / burstsPerSecond, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                guard let self, self.previewRequested, self.lifecycleGeneration == generation else { return }
+                guard let self, self.isCurrent(generation) else { return }
                 self.performPrivacyBurst(generation: generation)
             }
         }
@@ -195,7 +195,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func performPrivacyBurst(generation: UInt64) {
-        guard previewRequested, lifecycleGeneration == generation else { return }
+        guard isCurrent(generation) else { return }
         gate.requiredCleanChecks = settings.clearMode.requiredChecks(checksPerSecond: burstsPerSecond)
         gate.requiresManualApproval = settings.clearMode.requiresManualApproval
         gate.requiresClearanceDelay = true
@@ -205,7 +205,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             captureBounds: capture.targetBounds,
             count: scansPerBurst
         ) { [weak self] result in
-            guard let self, self.previewRequested, self.lifecycleGeneration == generation else { return }
+            guard let self, self.isCurrent(generation) else { return }
             switch result {
             case .inconclusive(let reason):
                 self.invalidateClearance(with: .inconclusive(reason))
@@ -224,7 +224,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func invalidateClearance(with result: PrivacyScanResult) {
-        clearTimer?.invalidate(); clearTimer = nil
+        stopClearTimer()
         clearanceGeneration &+= 1
         gate.update(result)
         updatePreviewState()
@@ -242,7 +242,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         gate.requiresClearanceDelay = true
         gate.reset("Settings changed · checking again")
         scanner.cancelPendingScans()
-        clearTimer?.invalidate(); clearTimer = nil
+        stopClearTimer()
         approvalPromptPresented = false
         updatePreviewState()
         if settings.clearMode == .safe {
@@ -252,10 +252,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func scheduleClearanceDelay(generation: UInt64) {
-        clearTimer?.invalidate()
+        stopClearTimer()
         clearTimer = Timer.scheduledTimer(withTimeInterval: settings.delaySeconds, repeats: false) { [weak self] _ in
             Task { @MainActor in
-                guard let self, self.previewRequested, self.lifecycleGeneration == generation else { return }
+                guard let self, self.isCurrent(generation) else { return }
                 self.gate.completeClearanceDelay()
                 self.updatePreviewState()
                 if self.gate.pendingManualApproval && !self.approvalPromptPresented {
@@ -363,4 +363,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         NSApp.activate(ignoringOtherApps: true)
     }
     @objc private func openPreview() { showPreview() }
+
+    private func isCurrent(_ generation: UInt64) -> Bool {
+        previewRequested && lifecycleGeneration == generation
+    }
+
+    private func stopScanTimer() {
+        scanTimer?.invalidate()
+        scanTimer = nil
+    }
+
+    private func stopClearTimer() {
+        clearTimer?.invalidate()
+        clearTimer = nil
+    }
 }
