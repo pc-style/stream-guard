@@ -39,6 +39,19 @@ enum CaptureResolution: String, CaseIterable {
     }
 }
 
+enum ProtectionPreset: String, CaseIterable {
+    case safe, balanced, fast
+    var title: String {
+        switch self {
+        case .safe: return "Safe · OCR gaps · 0.5 s reconciliation"
+        case .balanced: return "Balanced · exact AX masks · 3 s reconciliation"
+        case .fast: return "Fast · exact AX masks · 5 s reconciliation"
+        }
+    }
+    var reconciliationInterval: TimeInterval { self == .safe ? 0.5 : (self == .balanced ? 3 : 5) }
+    var usesOCR: Bool { self == .safe }
+}
+
 final class Settings {
     private let defaults = UserDefaults.standard
     private let phraseKey = "customPhrases"
@@ -46,6 +59,11 @@ final class Settings {
     var isEnabled: Bool {
         get { defaults.object(forKey: "isEnabled") as? Bool ?? true }
         set { defaults.set(newValue, forKey: "isEnabled") }
+    }
+
+    var protectionPreset: ProtectionPreset {
+        get { ProtectionPreset(rawValue: defaults.string(forKey: "protectionPreset") ?? "balanced") ?? .balanced }
+        set { defaults.set(newValue.rawValue, forKey: "protectionPreset") }
     }
 
     var customPhrases: [String] {

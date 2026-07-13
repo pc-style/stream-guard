@@ -2,7 +2,7 @@
 
 PII Guard gives you a delayed, protected screen-sharing preview on macOS. Share the **PII Guard Preview** window instead of your display. If visible Accessibility text matches an email, phone number, payment card, PESEL, IP address, or custom phrase, the preview turns black immediately.
 
-Everything runs locally. PII Guard uses ScreenCaptureKit for the delayed preview and Accessibility for text detection. It doesn't use OCR or send screen contents anywhere.
+Everything runs locally. PII Guard uses ScreenCaptureKit, Accessibility text geometry, and optional on-device Vision OCR in the Safe preset. It never sends screen contents anywhere.
 
 ## Install
 
@@ -49,7 +49,7 @@ printf '%s' 'private text' | dist/pii-guard check --stdin
 
 ## Privacy
 
-PII Guard processes capture frames and Accessibility text on your Mac. It has no analytics, accounts, cloud processing, OCR, or remote API calls. Apps that don't expose readable Accessibility text are treated as unsupported, so check the status shown in the app before sharing.
+PII Guard processes capture frames, Accessibility text, and Safe-preset OCR on your Mac. It has no analytics, accounts, cloud processing, or remote API calls. Coverage failures remain masked or blocked rather than being treated as clean.
 
 ## Website
 

@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private let capture = DelayedCapture()
     private let gate = PrivacyGate()
     private let recorder = FrameRecorder()
+    private let snapshots = SnapshotStore()
     private var configuration: ConfigurationWindowController!
     private var preview: PreviewWindowController!
     private var statusItem: NSStatusItem!
@@ -28,6 +29,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         buildWindows()
         buildStatusItem()
         wireCapture()
+        scanner.onInvalidated = { [weak self] in
+            guard let self, self.previewRequested else { return }
+            self.snapshots.replace(nil)
+            self.performPrivacyBurst(generation: self.lifecycleGeneration)
+        }
         updatePreviewState()
         requestAccessibilityIfNeeded()
         UNUserNotificationCenter.current().delegate = self
@@ -39,6 +45,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         previewRequested = false
         lifecycleGeneration &+= 1
         scanner.cancelPendingScans()
+        scanner.stopObserving()
+        snapshots.replace(nil)
         scanTimer?.invalidate()
         clearTimer?.invalidate()
         Task { await capture.stop() }
@@ -71,16 +79,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func wireCapture() {
+        capture.protectionDecision = { [weak self] time in
+            guard let self else { return nil }
+            return self.snapshots.decision(at: time, maximumAge: self.settings.protectionPreset.reconciliationInterval * 2, expectedGeneration: self.lifecycleGeneration)
+        }
         capture.onFrame = { [weak self] image in
             guard let self else { return }
             self.preview.showFrame(image)
-            self.recorder.append(image, blockedReason: self.gate.isBlocked ? self.gate.reason : nil)
+            // DelayedCapture has already applied the frame's capture-time
+            // decision. Fan out that single protected render unchanged.
+            self.recorder.append(image, blockedReason: nil)
         }
         capture.onError = { [weak self] error in
             guard let self else { return }
             self.previewRequested = false
             self.lifecycleGeneration &+= 1
             self.scanner.cancelPendingScans()
+            self.scanner.stopObserving()
+            self.snapshots.replace(nil)
             self.scanTimer?.invalidate(); self.scanTimer = nil
             self.clearTimer?.invalidate(); self.clearTimer = nil
             self.gate.reset("Capture stopped")
@@ -106,6 +122,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         lifecycleGeneration &+= 1
         let generation = lifecycleGeneration
         scanner.cancelPendingScans()
+        scanner.stopObserving()
+        snapshots.replace(nil)
+        scanner.startObserving()
         scanTimer?.invalidate(); scanTimer = nil
         clearTimer?.invalidate(); clearTimer = nil
         gate.requiredCleanChecks = settings.clearMode.requiredChecks(checksPerSecond: burstsPerSecond)
@@ -141,6 +160,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 guard previewRequested, lifecycleGeneration == generation else { return }
                 previewRequested = false
                 scanner.cancelPendingScans()
+                scanner.stopObserving()
+                snapshots.replace(nil)
                 scanTimer?.invalidate(); scanTimer = nil
                 gate.reset("Screen Recording permission required")
                 updatePreviewState()
@@ -157,6 +178,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         previewRequested = false
         lifecycleGeneration &+= 1
         scanner.cancelPendingScans()
+        scanner.stopObserving()
+        snapshots.replace(nil)
         if recorder.isRecording { stopRecording() }
         scanTimer?.invalidate(); scanTimer = nil
         clearTimer?.invalidate(); clearTimer = nil
@@ -183,8 +206,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func startScanning(generation: UInt64) {
         guard previewRequested, lifecycleGeneration == generation else { return }
         scanTimer?.invalidate()
-        configuration.setRunning(true, status: "Preview running · 3 coalesced scans every 200 ms")
-        scanTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / burstsPerSecond, repeats: true) { [weak self] _ in
+        let interval = settings.protectionPreset.reconciliationInterval
+        configuration.setRunning(true, status: "Preview running · \(settings.protectionPreset.title)")
+        scanTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self, self.previewRequested, self.lifecycleGeneration == generation else { return }
                 self.performPrivacyBurst(generation: generation)
@@ -207,12 +231,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ) { [weak self] result in
             guard let self, self.previewRequested, self.lifecycleGeneration == generation else { return }
             switch result {
-            case .inconclusive(let reason):
+            case .inconclusive(let reason, let detections, let gaps, let requiresFullBlock, _):
+                let bounds = self.capture.targetBounds
+                self.snapshots.replace(ProtectionSnapshot(generation: generation, capturedAt: ProcessInfo.processInfo.systemUptime, maskRects: detections.map(\.bounds), gapRects: gaps, captureBounds: bounds, usesOCR: self.settings.protectionPreset.usesOCR, detectionOptions: self.settings.detectionOptions, blocksFrame: requiresFullBlock || bounds == nil, reason: reason))
                 self.invalidateClearance(with: .inconclusive(reason))
             case .detected(let detections, let app):
+                let masks = detections.map(\.bounds)
+                self.snapshots.replace(ProtectionSnapshot(generation: generation, capturedAt: ProcessInfo.processInfo.systemUptime, maskRects: masks, captureBounds: self.capture.targetBounds, detectionOptions: self.settings.detectionOptions, blocksFrame: masks.isEmpty, reason: "PII detected"))
                 let kinds = Set(detections.map { $0.kind.rawValue }).sorted().joined(separator: ", ")
                 self.invalidateClearance(with: .detected("PII detected in \(app) · \(kinds)"))
             case .clean:
+                self.snapshots.replace(ProtectionSnapshot(generation: generation, capturedAt: ProcessInfo.processInfo.systemUptime, maskRects: [], captureBounds: self.capture.targetBounds, detectionOptions: self.settings.detectionOptions, blocksFrame: false, reason: "Protected"))
                 let wasWaitingForDelay = self.gate.pendingClearanceDelay
                 self.gate.update(.clean)
                 self.updatePreviewState()
@@ -237,6 +266,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func settingsChanged() {
+        snapshots.replace(nil)
         gate.requiredCleanChecks = settings.clearMode.requiredChecks(checksPerSecond: burstsPerSecond)
         gate.requiresManualApproval = settings.clearMode.requiresManualApproval
         gate.requiresClearanceDelay = true

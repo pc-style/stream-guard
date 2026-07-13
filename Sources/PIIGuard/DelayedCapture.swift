@@ -3,15 +3,19 @@ import CoreImage
 import CoreMedia
 import PIIGuardCore
 import ScreenCaptureKit
+import Vision
 
 final class DelayedCapture: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
     struct Frame {
         let readyAt: TimeInterval
         let image: CGImage
+        let decision: ProtectionSnapshot
+        let geometry: CaptureGeometry?
     }
 
     var onFrame: ((CGImage) -> Void)?
     var onError: ((String) -> Void)?
+    var protectionDecision: ((TimeInterval) -> ProtectionSnapshot?)?
 
     private let outputQueue = DispatchQueue(label: "dev.pcstyle.piiguard.capture", qos: .userInitiated)
     private let context = CIContext(options: [.cacheIntermediates: false])
@@ -57,7 +61,7 @@ final class DelayedCapture: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
         if let previousStream { try? await previousStream.stopCapture() }
         guard isCurrent(generation) else { throw CaptureError.cancelled }
 
-        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+        let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
         guard isCurrent(generation) else { throw CaptureError.cancelled }
         guard let display = content.displays.first else { throw CaptureError.noDisplay }
 
@@ -141,15 +145,22 @@ final class DelayedCapture: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
         guard type == .screen, sampleBuffer.isValid, let generation = generation(for: stream) else { return }
 
         let now = ProcessInfo.processInfo.systemUptime
-        var newestReady: CGImage?
+        var newestReady: Frame?
         while let first = frames.first, first.readyAt <= now {
-            newestReady = first.image
+            newestReady = first
             frames.removeFirst()
         }
         if let newestReady {
+            // A frame may have been buffered while clean and become ready
+            // after an AX invalidation. Re-check dirty state at presentation;
+            // the capture-time snapshot still supplies spatially aligned masks.
+            let rendered = protectionDecision?(now) == nil
+                ? blackFrame(extent: CGRect(x: 0, y: 0, width: newestReady.image.width, height: newestReady.image.height))
+                : render(newestReady)
+            guard let rendered else { return }
             DispatchQueue.main.async { [weak self] in
                 guard let self, isCurrent(generation) else { return }
-                onFrame?(newestReady)
+                onFrame?(rendered)
             }
         }
 
@@ -160,8 +171,89 @@ final class DelayedCapture: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
 
         let image = CIImage(cvPixelBuffer: pixelBuffer)
         guard let cgImage = context.createCGImage(image, from: image.extent) else { return }
-        frames.append(Frame(readyAt: now + delaySeconds, image: cgImage))
+        let decision = protectionDecision?(now) ?? ProtectionSnapshot(generation: generation, capturedAt: now, maskRects: [], blocksFrame: true, reason: "Protection snapshot unavailable")
+        let frameGeometry = captureGeometry(from: sampleBuffer, pixelSize: image.extent.size, fallbackBounds: decision.captureBounds)
+        frames.append(Frame(readyAt: now + delaySeconds, image: cgImage, decision: decision, geometry: frameGeometry))
         lastBufferedAt = now
+    }
+
+    private func render(_ frame: Frame) -> CGImage? {
+        var image = CIImage(cgImage: frame.image)
+        let extent = image.extent
+        guard let globalBounds = frame.decision.captureBounds else {
+            return frame.decision.blocksFrame ? blackFrame(extent: extent) : nil
+        }
+        let geometry = frame.geometry ?? CaptureGeometry(globalBounds: globalBounds, pixelSize: extent.size)
+        var rects = frame.decision.maskRects.compactMap { geometry.imageRect(for: $0) }
+        let gaps = frame.decision.gapRects.compactMap { geometry.imageRect(for: $0) }
+        // Gap masks remain even when OCR succeeds: inaccessible AX content is
+        // never declared clean from an empty or partial recognition result.
+        rects.append(contentsOf: gaps)
+        if frame.decision.usesOCR {
+            rects.append(contentsOf: ocrMasks(in: frame.image, crops: gaps, options: frame.decision.detectionOptions))
+        }
+        if frame.decision.blocksFrame { rects = [extent] }
+        for rect in rects {
+            let clipped = rect.intersection(extent)
+            guard !clipped.isNull else { continue }
+            image = CIImage(color: .black).cropped(to: clipped).composited(over: image)
+        }
+        return context.createCGImage(image, from: extent)
+    }
+
+    private func blackFrame(extent: CGRect) -> CGImage? {
+        context.createCGImage(CIImage(color: .black).cropped(to: extent), from: extent)
+    }
+
+    private func ocrMasks(in image: CGImage, crops: [CGRect], options: DetectionOptions) -> [CGRect] {
+        let engine = DetectionEngine()
+        var masks: [CGRect] = []
+        for crop in crops.prefix(8) {
+            let cgCrop = cgImageCropRect(fromCIRect: crop.integral, imageHeight: CGFloat(image.height))
+            guard let cropped = image.cropping(to: cgCrop) else { continue }
+            let request = VNRecognizeTextRequest()
+            request.recognitionLevel = .accurate
+            request.usesLanguageCorrection = false
+            do { try VNImageRequestHandler(cgImage: cropped).perform([request]) } catch { continue }
+            for observation in request.results ?? [] {
+                guard let candidate = observation.topCandidates(1).first else { continue }
+                for detection in engine.detect(in: candidate.string, options: options) {
+                    guard let swiftRange = Range(detection.range, in: candidate.string),
+                          let box = try? candidate.boundingBox(for: swiftRange) else { continue }
+                    // Vision boxes are normalized with a lower-left origin.
+                    masks.append(CGRect(x: crop.minX + box.boundingBox.minX * crop.width,
+                                        y: crop.minY + box.boundingBox.minY * crop.height,
+                                        width: box.boundingBox.width * crop.width,
+                                        height: box.boundingBox.height * crop.height).integral)
+                }
+            }
+        }
+        return masks
+    }
+
+    private func captureGeometry(from sampleBuffer: CMSampleBuffer, pixelSize: CGSize, fallbackBounds: CGRect?) -> CaptureGeometry? {
+        guard let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: false) as? [[SCStreamFrameInfo: Any]],
+              let attachment = attachments.first else {
+            return fallbackBounds.map { CaptureGeometry(globalBounds: $0, pixelSize: pixelSize) }
+        }
+        func rect(_ key: SCStreamFrameInfo) -> CGRect? {
+            if let value = attachment[key] as? NSValue { return value.rectValue }
+            if let dictionary = attachment[key] as? [String: Any] {
+                return CGRect(dictionaryRepresentation: dictionary as CFDictionary)
+            }
+            return nil
+        }
+        let sourceBounds: CGRect?
+        if #available(macOS 14.0, *) { sourceBounds = rect(.screenRect) ?? fallbackBounds }
+        else { sourceBounds = fallbackBounds }
+        guard let sourceBounds else { return nil }
+        guard let metadataContent = rect(.contentRect), metadataContent.width > 0, metadataContent.height > 0 else {
+            return CaptureGeometry(globalBounds: sourceBounds, pixelSize: pixelSize)
+        }
+        // ScreenCaptureKit reports output rectangles from the top-left; the
+        // renderer and mask geometry use Core Image's bottom-left origin.
+        let ciContent = cgImageCropRect(fromCIRect: metadataContent, imageHeight: pixelSize.height)
+        return CaptureGeometry(globalBounds: sourceBounds, pixelSize: pixelSize, contentRect: ciContent)
     }
 
     private func beginLifecycleTransition() -> (generation: UInt64, previousStream: SCStream?) {
