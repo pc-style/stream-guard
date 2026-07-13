@@ -237,7 +237,7 @@ final class AccessibilityScanner: @unchecked Sendable {
         let unmapped = inventory.filter { $0.app == nil }
         if !unmapped.isEmpty {
             coverageFailure = "Some captured windows do not expose an application"
-            gaps.append(contentsOf: unmapped.map(\.bounds))
+            gaps.append(contentsOf: visibleGapRects(for: unmapped, in: inventory))
         }
         var scannedApps: [String] = []
         for app in apps {
@@ -251,8 +251,9 @@ final class AccessibilityScanner: @unchecked Sendable {
             guard AXUIElementCopyAttributeValue(root, kAXWindowsAttribute as CFString, &windowsValue) == .success,
                   let allWindows = windowsValue as? [AXUIElement], !allWindows.isEmpty else {
                 if coverageFailure == nil { coverageFailure = "Accessibility unsupported in \(appName)" }
-                let appGaps = inventory.filter { $0.pid == app.processIdentifier }.map(\.bounds)
-                gaps.append(contentsOf: appGaps); hasUnscopedGap = hasUnscopedGap || appGaps.isEmpty
+                let capturedAppWindows = inventory.filter { $0.pid == app.processIdentifier }
+                gaps.append(contentsOf: visibleGapRects(for: capturedAppWindows, in: inventory))
+                hasUnscopedGap = hasUnscopedGap || capturedAppWindows.isEmpty
                 continue
             }
             // Only AX windows that can be matched to a captured CG window
@@ -272,14 +273,14 @@ final class AccessibilityScanner: @unchecked Sendable {
             }
             guard !windows.isEmpty else {
                 if coverageFailure == nil { coverageFailure = "Unable to match \(appName) windows to the captured display" }
-                let appGaps = inventory.filter { $0.pid == app.processIdentifier }.map(\.bounds)
-                gaps.append(contentsOf: appGaps); hasUnscopedGap = hasUnscopedGap || appGaps.isEmpty
+                gaps.append(contentsOf: visibleGapRects(for: capturedAppWindows, in: inventory))
+                hasUnscopedGap = hasUnscopedGap || capturedAppWindows.isEmpty
                 continue
             }
             guard windows.count <= maxWindowsPerApp else {
                 if coverageFailure == nil { coverageFailure = "Accessibility window limit exceeded in \(appName)" }
-                let scoped = capturedAppWindows.map(\.bounds)
-                gaps.append(contentsOf: scoped); hasUnscopedGap = hasUnscopedGap || scoped.isEmpty
+                gaps.append(contentsOf: visibleGapRects(for: capturedAppWindows, in: inventory))
+                hasUnscopedGap = hasUnscopedGap || capturedAppWindows.isEmpty
                 continue
             }
 
@@ -293,7 +294,7 @@ final class AccessibilityScanner: @unchecked Sendable {
                 }
             }
             if !unmatchedCapturedWindows.isEmpty {
-                gaps.append(contentsOf: unmatchedCapturedWindows.map(\.bounds))
+                gaps.append(contentsOf: visibleGapRects(for: unmatchedCapturedWindows, in: inventory))
                 if coverageFailure == nil { coverageFailure = "A captured window is not represented by Accessibility" }
             }
 
@@ -325,8 +326,8 @@ final class AccessibilityScanner: @unchecked Sendable {
                     : "Accessibility scan incomplete in \(appName)"
                 // The CG inventory is authoritative for captured geometry and
                 // remains usable even when an AX call fails mid-traversal.
-                let scoped = capturedAppWindows.map(\.bounds)
-                gaps.append(contentsOf: scoped); hasUnscopedGap = hasUnscopedGap || scoped.isEmpty
+                gaps.append(contentsOf: visibleGapRects(for: capturedAppWindows, in: inventory))
+                hasUnscopedGap = hasUnscopedGap || capturedAppWindows.isEmpty
                 return .inconclusive(reason, detections: allDetections + output, gaps: gaps, requiresFullBlock: hasUnscopedGap, hasUnscopedGap: hasUnscopedGap)
             }
             allDetections.append(contentsOf: output)
@@ -359,7 +360,12 @@ final class AccessibilityScanner: @unchecked Sendable {
         return CGRect(origin: position, size: size)
     }
 
-    private struct CapturedWindow { let pid: pid_t; let bounds: CGRect; let app: NSRunningApplication? }
+    private struct CapturedWindow {
+        let id: CGWindowID
+        let pid: pid_t
+        let bounds: CGRect
+        let app: NSRunningApplication?
+    }
 
     private func capturedWindowInventory(in captureBounds: CGRect) -> [CapturedWindow]? {
         guard let windowInfo = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
@@ -368,7 +374,8 @@ final class AccessibilityScanner: @unchecked Sendable {
         let ownPID = ProcessInfo.processInfo.processIdentifier
         var windows: [CapturedWindow] = []
         for info in windowInfo {
-            guard let pid = info[kCGWindowOwnerPID as String] as? pid_t, pid != ownPID,
+            guard let idValue = info[kCGWindowNumber as String] as? NSNumber,
+                  let pid = info[kCGWindowOwnerPID as String] as? pid_t, pid != ownPID,
                   let bounds = info[kCGWindowBounds as String] as? [String: Any],
                   let frame = CGRect(dictionaryRepresentation: bounds as CFDictionary),
                   frame.width > 1, frame.height > 1, captureBounds.intersects(frame),
@@ -376,9 +383,43 @@ final class AccessibilityScanner: @unchecked Sendable {
                   (info[kCGWindowAlpha as String] as? Double ?? 1) > 0 else { continue }
             let clipped = frame.intersection(captureBounds)
             let app = NSRunningApplication(processIdentifier: pid)
-            windows.append(CapturedWindow(pid: pid, bounds: clipped, app: app?.isHidden == false ? app : nil))
+            windows.append(CapturedWindow(id: CGWindowID(idValue.uint32Value), pid: pid, bounds: clipped, app: app?.isHidden == false ? app : nil))
         }
         return windows
+    }
+
+    /// CGWindowList is ordered front-to-back. Remove pixels covered by higher
+    /// windows so an inaccessible background app does not black out the
+    /// foreground app that is actually visible in the capture.
+    private func visibleGapRects(for targets: [CapturedWindow], in inventory: [CapturedWindow]) -> [CGRect] {
+        targets.flatMap { target in
+            var visible = [target.bounds]
+            for occluder in inventory {
+                if occluder.id == target.id { break }
+                visible = visible.flatMap { subtract(occluder.bounds, from: $0) }
+                if visible.isEmpty { break }
+            }
+            return visible
+        }
+    }
+
+    private func subtract(_ occluder: CGRect, from source: CGRect) -> [CGRect] {
+        let overlap = source.intersection(occluder)
+        guard !overlap.isNull, !overlap.isEmpty else { return [source] }
+        var pieces: [CGRect] = []
+        if overlap.minY > source.minY {
+            pieces.append(CGRect(x: source.minX, y: source.minY, width: source.width, height: overlap.minY - source.minY))
+        }
+        if overlap.maxY < source.maxY {
+            pieces.append(CGRect(x: source.minX, y: overlap.maxY, width: source.width, height: source.maxY - overlap.maxY))
+        }
+        if overlap.minX > source.minX {
+            pieces.append(CGRect(x: source.minX, y: overlap.minY, width: overlap.minX - source.minX, height: overlap.height))
+        }
+        if overlap.maxX < source.maxX {
+            pieces.append(CGRect(x: overlap.maxX, y: overlap.minY, width: source.maxX - overlap.maxX, height: overlap.height))
+        }
+        return pieces.filter { !$0.isEmpty }
     }
 
     private func walk(
