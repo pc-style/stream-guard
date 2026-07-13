@@ -245,12 +245,20 @@ final class AccessibilityScanner: @unchecked Sendable {
                 gaps.append(contentsOf: appGaps); hasUnscopedGap = hasUnscopedGap || appGaps.isEmpty
                 continue
             }
-            // Only windows on the captured display count toward the window
-            // limit or need scanning; include windows with unreadable frames
-            // conservatively.
+            // Only AX windows that can be matched to a captured CG window
+            // should be traversed. Finder exposes additional desktop and
+            // hidden AX windows whose full trees are both irrelevant to this
+            // capture and unusually large. Captured windows without usable AX
+            // geometry are represented as gaps below instead of traversing an
+            // unrelated tree.
+            let capturedAppWindows = inventory.filter { $0.pid == app.processIdentifier }
             let windows = allWindows.filter { window in
-                guard let frame = frame(of: window) else { return true }
-                return captureBounds.intersects(frame)
+                guard let axFrame = frame(of: window), captureBounds.intersects(axFrame) else { return false }
+                return capturedAppWindows.contains { captured in
+                    let overlap = axFrame.intersection(captured.bounds)
+                    let smallerArea = min(axFrame.width * axFrame.height, captured.bounds.width * captured.bounds.height)
+                    return !overlap.isNull && smallerArea > 0 && overlap.width * overlap.height / smallerArea >= 0.5
+                }
             }
             guard !windows.isEmpty else {
                 if coverageFailure == nil { coverageFailure = "Unable to match \(appName) windows to the captured display" }
@@ -424,8 +432,19 @@ final class AccessibilityScanner: @unchecked Sendable {
             }
         }
 
+        // Finder and other collection-heavy apps can expose thousands of
+        // off-screen descendants through AXChildren. Prefer AXVisibleChildren
+        // when available so the bounded walk covers what is actually present
+        // in the captured pixels.
         var childrenValue: CFTypeRef?
-        let childrenResult = AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenValue)
+        let visibleChildrenResult = AXUIElementCopyAttributeValue(element, kAXVisibleChildrenAttribute as CFString, &childrenValue)
+        let childrenResult: AXError
+        if visibleChildrenResult == .success {
+            childrenResult = visibleChildrenResult
+        } else {
+            childrenValue = nil
+            childrenResult = AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenValue)
+        }
         if childrenResult == .success, let children = childrenValue as? [AXUIElement] {
             guard children.count <= 300 else { complete = false; return }
             for child in children {
