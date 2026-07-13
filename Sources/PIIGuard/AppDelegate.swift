@@ -21,6 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private let scansPerBurst = 3
     private var approvalPromptPresented = false
     private var previewRequested = false
+    private var previewRequiresFullBlock = true
     private var lifecycleGeneration: UInt64 = 0
     private var clearanceGeneration: UInt64 = 0
 
@@ -32,6 +33,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         scanner.onInvalidated = { [weak self] in
             guard let self, self.previewRequested else { return }
             self.snapshots.replace(nil)
+            self.previewRequiresFullBlock = true
+            self.updatePreviewState()
             self.performPrivacyBurst(generation: self.lifecycleGeneration)
         }
         updatePreviewState()
@@ -100,6 +103,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             self.scanTimer?.invalidate(); self.scanTimer = nil
             self.clearTimer?.invalidate(); self.clearTimer = nil
             self.gate.reset("Capture stopped")
+            self.previewRequiresFullBlock = true
             self.approvalPromptPresented = false
             if self.recorder.isRecording { self.stopRecording() }
             self.configuration.setRunning(false, status: error)
@@ -131,6 +135,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         gate.requiresManualApproval = settings.clearMode.requiresManualApproval
         gate.requiresClearanceDelay = true
         gate.reset(scanner.isTrusted ? "Filling delayed stream buffer" : "Accessibility permission required")
+        previewRequiresFullBlock = true
         approvalPromptPresented = false
         configuration.setRunning(true, status: "Requesting Screen Recording access…")
         showPreview()
@@ -184,6 +189,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         scanTimer?.invalidate(); scanTimer = nil
         clearTimer?.invalidate(); clearTimer = nil
         gate.reset("Preview stopped")
+        previewRequiresFullBlock = true
         approvalPromptPresented = false
         updatePreviewState()
         configuration.setRunning(false, status: "Preview stopped")
@@ -233,15 +239,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             switch result {
             case .inconclusive(let reason, let detections, let gaps, let requiresFullBlock, _):
                 let bounds = self.capture.targetBounds
-                self.snapshots.replace(ProtectionSnapshot(generation: generation, capturedAt: ProcessInfo.processInfo.systemUptime, maskRects: detections.map(\.bounds), gapRects: gaps, captureBounds: bounds, usesOCR: self.settings.protectionPreset.usesOCR, detectionOptions: self.settings.detectionOptions, blocksFrame: requiresFullBlock || bounds == nil, reason: reason))
+                let blocksFrame = requiresFullBlock || bounds == nil
+                self.snapshots.replace(ProtectionSnapshot(generation: generation, capturedAt: ProcessInfo.processInfo.systemUptime, maskRects: detections.map(\.bounds), gapRects: gaps, captureBounds: bounds, usesOCR: self.settings.protectionPreset.usesOCR, detectionOptions: self.settings.detectionOptions, blocksFrame: blocksFrame, reason: reason))
+                self.previewRequiresFullBlock = blocksFrame
                 self.invalidateClearance(with: .inconclusive(reason))
             case .detected(let detections, let app):
                 let masks = detections.map(\.bounds)
-                self.snapshots.replace(ProtectionSnapshot(generation: generation, capturedAt: ProcessInfo.processInfo.systemUptime, maskRects: masks, captureBounds: self.capture.targetBounds, detectionOptions: self.settings.detectionOptions, blocksFrame: masks.isEmpty, reason: "PII detected"))
+                let blocksFrame = masks.isEmpty || self.capture.targetBounds == nil
+                self.snapshots.replace(ProtectionSnapshot(generation: generation, capturedAt: ProcessInfo.processInfo.systemUptime, maskRects: masks, captureBounds: self.capture.targetBounds, detectionOptions: self.settings.detectionOptions, blocksFrame: blocksFrame, reason: "PII detected"))
+                self.previewRequiresFullBlock = blocksFrame
                 let kinds = Set(detections.map { $0.kind.rawValue }).sorted().joined(separator: ", ")
                 self.invalidateClearance(with: .detected("PII detected in \(app) · \(kinds)"))
             case .clean:
                 self.snapshots.replace(ProtectionSnapshot(generation: generation, capturedAt: ProcessInfo.processInfo.systemUptime, maskRects: [], captureBounds: self.capture.targetBounds, detectionOptions: self.settings.detectionOptions, blocksFrame: false, reason: "Protected"))
+                self.previewRequiresFullBlock = false
                 let wasWaitingForDelay = self.gate.pendingClearanceDelay
                 self.gate.update(.clean)
                 self.updatePreviewState()
@@ -260,13 +271,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func updatePreviewState() {
-        preview.setBlocked(gate.isBlocked, reason: gate.reason, delay: settings.delaySeconds)
-        configuration.setProtectionState(blocked: gate.isBlocked, reason: gate.reason)
+        preview.setBlocked(previewRequiresFullBlock, reason: gate.reason, delay: settings.delaySeconds)
+        configuration.setProtectionState(blocked: previewRequiresFullBlock, reason: gate.reason)
         configuration.setManualClearanceRequired(gate.pendingManualApproval)
     }
 
     private func settingsChanged() {
         snapshots.replace(nil)
+        previewRequiresFullBlock = true
         gate.requiredCleanChecks = settings.clearMode.requiredChecks(checksPerSecond: burstsPerSecond)
         gate.requiresManualApproval = settings.clearMode.requiresManualApproval
         gate.requiresClearanceDelay = true
