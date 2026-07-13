@@ -21,13 +21,13 @@ final class AccessibilityScanner: @unchecked Sendable {
         let options: DetectionOptions
         let captureBounds: CGRect?
         let count: Int
+        let timeout: TimeInterval
         let completion: (ScanResult) -> Void
     }
 
     private let engine = DetectionEngine()
     private let maxElements = 1_500
     private let maxWindowsPerApp = 4
-    private let scanTimeout: TimeInterval = 0.15
     private let scanQueue = DispatchQueue(label: "dev.pcstyle.piiguard.accessibility-scan", qos: .userInitiated)
     private let stateLock = NSLock()
     private var generation: UInt64 = 0
@@ -57,6 +57,7 @@ final class AccessibilityScanner: @unchecked Sendable {
         options: DetectionOptions,
         captureBounds: CGRect?,
         count: Int,
+        timeout: TimeInterval,
         completion: @escaping (ScanResult) -> Void
     ) {
         stateLock.lock()
@@ -66,6 +67,7 @@ final class AccessibilityScanner: @unchecked Sendable {
             options: options,
             captureBounds: captureBounds,
             count: max(1, count),
+            timeout: max(0.1, timeout),
             completion: completion
         )
         if scanInFlight {
@@ -194,7 +196,7 @@ final class AccessibilityScanner: @unchecked Sendable {
     private func performBurst(_ request: Request) -> ScanResult {
         var lastClean: ScanResult = .clean(app: "captured display")
         for _ in 0..<request.count {
-            let result = scan(options: request.options, captureBounds: request.captureBounds)
+            let result = scan(options: request.options, captureBounds: request.captureBounds, timeout: request.timeout)
             switch result {
             case .clean:
                 lastClean = result
@@ -205,7 +207,7 @@ final class AccessibilityScanner: @unchecked Sendable {
         return lastClean
     }
 
-    private func scan(options: DetectionOptions, captureBounds: CGRect?) -> ScanResult {
+    private func scan(options: DetectionOptions, captureBounds: CGRect?, timeout: TimeInterval) -> ScanResult {
         guard isTrusted else { return .inconclusive("Accessibility permission required", detections: [], gaps: [], requiresFullBlock: true, hasUnscopedGap: true) }
         guard let captureBounds else { return .inconclusive("Capture target unavailable", detections: [], gaps: [], requiresFullBlock: true, hasUnscopedGap: true) }
         guard let inventory = capturedWindowInventory(in: captureBounds) else {
@@ -223,7 +225,6 @@ final class AccessibilityScanner: @unchecked Sendable {
         // apps. The result stays fail-closed: any coverage failure still
         // yields .inconclusive after every app has been given a chance to
         // produce a detection.
-        let deadline = ProcessInfo.processInfo.systemUptime + scanTimeout
         var coverageFailure: String?
         var gaps: [CGRect] = []
         var allDetections: [ScreenDetection] = []
@@ -235,6 +236,10 @@ final class AccessibilityScanner: @unchecked Sendable {
         }
         var scannedApps: [String] = []
         for app in apps {
+            // Each process gets its own budget. A slow app earlier in the
+            // WindowServer order must not consume the time available to a
+            // browser or terminal scanned later.
+            let deadline = ProcessInfo.processInfo.systemUptime + timeout
             let appName = app.localizedName ?? "Captured app"
             let root = AXUIElementCreateApplication(app.processIdentifier)
             var windowsValue: CFTypeRef?

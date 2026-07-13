@@ -49,6 +49,7 @@ enum ProtectionPreset: String, CaseIterable {
         }
     }
     var reconciliationInterval: TimeInterval { self == .safe ? 0.5 : (self == .balanced ? 3 : 5) }
+    var accessibilityTimeout: TimeInterval { self == .safe ? 1.0 : (self == .balanced ? 0.75 : 0.3) }
     var usesOCR: Bool { self == .safe }
 }
 

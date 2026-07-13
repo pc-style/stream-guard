@@ -18,7 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var scanTimer: Timer?
     private var clearTimer: Timer?
     private let burstsPerSecond = 5.0
-    private let scansPerBurst = 3
+    private let scansPerBurst = 1
     private var approvalPromptPresented = false
     private var previewRequested = false
     private var previewRequiresFullBlock = true
@@ -233,7 +233,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         scanner.requestBurst(
             options: settings.detectionOptions,
             captureBounds: capture.targetBounds,
-            count: scansPerBurst
+            count: scansPerBurst,
+            timeout: settings.protectionPreset.accessibilityTimeout
         ) { [weak self] result in
             guard let self, self.previewRequested, self.lifecycleGeneration == generation else { return }
             switch result {
