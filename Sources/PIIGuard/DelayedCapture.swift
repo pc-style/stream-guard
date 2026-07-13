@@ -186,16 +186,13 @@ final class DelayedCapture: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
         let geometry = frame.geometry ?? CaptureGeometry(globalBounds: globalBounds, pixelSize: extent.size)
         var rects = frame.decision.maskRects.compactMap { geometry.imageRect(for: $0) }
         let gaps = frame.decision.gapRects.compactMap { geometry.imageRect(for: $0) }
+        // AX/OCR are independent positive detectors. Vision does not provide
+        // a completeness signal, so a successful request can add masks but
+        // cannot prove that an AX coverage gap is safe to reveal.
+        rects.append(contentsOf: gaps)
         if frame.decision.usesOCR {
             let ocr = ocrProtection(in: frame.image, crops: gaps, options: frame.decision.detectionOptions)
-            // A completed Vision request is the fallback coverage source for
-            // this exact buffered frame, so replace that crop's coarse mask
-            // with its sensitive substring masks. Failed crops remain fully
-            // masked rather than being treated as clean.
             rects.append(contentsOf: ocr.masks)
-            rects.append(contentsOf: ocr.failedCrops)
-        } else {
-            rects.append(contentsOf: gaps)
         }
         if frame.decision.blocksFrame { rects = [extent] }
         for rect in rects {

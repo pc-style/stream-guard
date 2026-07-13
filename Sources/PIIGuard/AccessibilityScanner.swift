@@ -218,7 +218,8 @@ final class AccessibilityScanner: @unchecked Sendable {
         guard let inventory = capturedWindowInventory(in: captureBounds) else {
             return .inconclusive("Captured window inventory unavailable", detections: [], gaps: [], requiresFullBlock: true, hasUnscopedGap: true)
         }
-        let apps = inventory.compactMap(\.app).reduce(into: [pid_t: NSRunningApplication]()) { $0[$1.processIdentifier] = $1 }.values.map { $0 }
+        var seenPIDs: Set<pid_t> = []
+        let apps = inventory.compactMap(\.app).filter { seenPIDs.insert($0.processIdentifier).inserted }
         reconcileObservers(pids: Set(apps.map(\.processIdentifier)))
         guard !inventory.isEmpty else {
             return .inconclusive("No content window on the captured display", detections: [], gaps: [], requiresFullBlock: false, hasUnscopedGap: false)
@@ -247,6 +248,7 @@ final class AccessibilityScanner: @unchecked Sendable {
             let deadline = ProcessInfo.processInfo.systemUptime + timeout
             let appName = app.localizedName ?? "Captured app"
             let root = AXUIElementCreateApplication(app.processIdentifier)
+            AXUIElementSetMessagingTimeout(root, Float(timeout))
             var windowsValue: CFTypeRef?
             guard AXUIElementCopyAttributeValue(root, kAXWindowsAttribute as CFString, &windowsValue) == .success,
                   let allWindows = windowsValue as? [AXUIElement], !allWindows.isEmpty else {
@@ -328,9 +330,17 @@ final class AccessibilityScanner: @unchecked Sendable {
                 // remains usable even when an AX call fails mid-traversal.
                 gaps.append(contentsOf: visibleGapRects(for: capturedAppWindows, in: inventory))
                 hasUnscopedGap = hasUnscopedGap || capturedAppWindows.isEmpty
-                return .inconclusive(reason, detections: allDetections + output, gaps: gaps, requiresFullBlock: hasUnscopedGap, hasUnscopedGap: hasUnscopedGap)
+                allDetections.append(contentsOf: output)
+                if coverageFailure == nil { coverageFailure = reason }
+                continue
             }
             allDetections.append(contentsOf: output)
+            if requiresFrameVerification(app) {
+                gaps.append(contentsOf: visibleGapRects(for: capturedAppWindows, in: inventory))
+                if coverageFailure == nil {
+                    coverageFailure = "Browser coverage cannot be verified completely in \(appName)"
+                }
+            }
             scannedApps.append(appName)
         }
 
@@ -340,6 +350,16 @@ final class AccessibilityScanner: @unchecked Sendable {
             return .inconclusive("No supported app window on the captured display", detections: [], gaps: gaps, requiresFullBlock: hasUnscopedGap, hasUnscopedGap: hasUnscopedGap)
         }
         return .clean(app: scannedApps.count == 1 ? firstApp : "captured display")
+    }
+
+    private func requiresFrameVerification(_ app: NSRunningApplication) -> Bool {
+        let identity = [app.bundleIdentifier, app.localizedName]
+            .compactMap { $0?.lowercased() }
+            .joined(separator: " ")
+        return [
+            "safari", "chrome", "chromium", "helium", "firefox",
+            "arc", "brave", "edge", "opera", "vivaldi"
+        ].contains { identity.contains($0) }
     }
 
     private func frame(of window: AXUIElement) -> CGRect? {
@@ -437,19 +457,30 @@ final class AccessibilityScanner: @unchecked Sendable {
         guard visited < maxElements else { complete = false; return }
         visited += 1
 
-        var visibleValue: CFTypeRef?
-        let visibleResult = AXUIElementCopyAttributeValue(element, "AXVisible" as CFString, &visibleValue)
-        if visibleResult == .success, let visible = visibleValue as? Bool, !visible { return }
-        if visibleResult != .success && visibleResult != .noValue && visibleResult != .attributeUnsupported {
+        let attributes = [
+            "AXVisible" as CFString,
+            kAXValueAttribute as CFString,
+            kAXTitleAttribute as CFString,
+            kAXDescriptionAttribute as CFString,
+            kAXVisibleChildrenAttribute as CFString
+        ] as CFArray
+        var attributeValues: CFArray?
+        let attributesResult = AXUIElementCopyMultipleAttributeValues(
+            element,
+            attributes,
+            AXCopyMultipleAttributeOptions(rawValue: 0),
+            &attributeValues
+        )
+        guard attributesResult == .success,
+              let values = attributeValues as? [Any],
+              values.count == 5 else {
             complete = false
             return
         }
+        if let visible = values[0] as? Bool, !visible { return }
 
-        for attribute in [kAXValueAttribute, kAXTitleAttribute, kAXDescriptionAttribute] {
-            var textValue: CFTypeRef?
-            let textResult = AXUIElementCopyAttributeValue(element, attribute as CFString, &textValue)
-            if textResult == .success {
-                guard let text = textValue as? String else { continue }
+        for (index, attribute) in [kAXValueAttribute, kAXTitleAttribute, kAXDescriptionAttribute].enumerated() {
+            if let text = values[index + 1] as? String {
                 guard text.count <= 20_000 else { complete = false; return }
                 let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
                 if attribute == kAXValueAttribute && trimmed.count >= 2 && trimmed.rangeOfCharacter(from: .alphanumerics) != nil {
@@ -479,9 +510,6 @@ final class AccessibilityScanner: @unchecked Sendable {
                     }
                     output.append(ScreenDetection(kind: detection.kind, range: detection.range, bounds: rect))
                 }
-            } else if textResult != .noValue && textResult != .attributeUnsupported {
-                complete = false
-                return
             }
         }
 
@@ -489,8 +517,8 @@ final class AccessibilityScanner: @unchecked Sendable {
         // off-screen descendants through AXChildren. Prefer AXVisibleChildren
         // when available so the bounded walk covers what is actually present
         // in the captured pixels.
-        var childrenValue: CFTypeRef?
-        let visibleChildrenResult = AXUIElementCopyAttributeValue(element, kAXVisibleChildrenAttribute as CFString, &childrenValue)
+        var childrenValue: CFTypeRef? = values[4] as CFTypeRef
+        let visibleChildrenResult: AXError = values[4] is [AXUIElement] ? .success : .attributeUnsupported
         let childrenResult: AXError
         if visibleChildrenResult == .success {
             childrenResult = visibleChildrenResult
