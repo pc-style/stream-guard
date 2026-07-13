@@ -140,7 +140,12 @@ final class AccessibilityScanner: @unchecked Sendable {
             var windowsValue: CFTypeRef?
             if AXUIElementCopyAttributeValue(root, kAXWindowsAttribute as CFString, &windowsValue) == .success,
                let windows = windowsValue as? [AXUIElement] {
-                let windowNotifications = [kAXMovedNotification, kAXResizedNotification, kAXTitleChangedNotification, kAXValueChangedNotification, "AXChildrenChanged", kAXLayoutChangedNotification].map { $0 as CFString }
+                // Window-root value/layout notifications are extremely noisy
+                // in Chromium-style apps and do not reliably represent text
+                // descendant changes. They can keep protection permanently
+                // dirty. Observe stable window geometry/title changes here;
+                // periodic reconciliation remains authoritative for body text.
+                let windowNotifications = [kAXMovedNotification, kAXResizedNotification, kAXTitleChangedNotification].map { $0 as CFString }
                 for window in windows.prefix(maxWindowsPerApp) {
                     for notification in windowNotifications where AXObserverAddNotification(observer, window, notification, context) == .success {
                         registrations.append((window, notification))
@@ -273,8 +278,8 @@ final class AccessibilityScanner: @unchecked Sendable {
             }
             guard windows.count <= maxWindowsPerApp else {
                 if coverageFailure == nil { coverageFailure = "Accessibility window limit exceeded in \(appName)" }
-                let scoped = windows.compactMap { frame(of: $0)?.intersection(captureBounds) }
-                gaps.append(contentsOf: scoped); hasUnscopedGap = hasUnscopedGap || scoped.count != windows.count
+                let scoped = capturedAppWindows.map(\.bounds)
+                gaps.append(contentsOf: scoped); hasUnscopedGap = hasUnscopedGap || scoped.isEmpty
                 continue
             }
 
@@ -318,8 +323,10 @@ final class AccessibilityScanner: @unchecked Sendable {
                 let reason = ProcessInfo.processInfo.systemUptime >= deadline
                     ? "Accessibility scan timed out in \(appName)"
                     : "Accessibility scan incomplete in \(appName)"
-                let scoped = windows.compactMap { frame(of: $0)?.intersection(captureBounds) }
-                gaps.append(contentsOf: scoped); hasUnscopedGap = hasUnscopedGap || scoped.count != windows.count
+                // The CG inventory is authoritative for captured geometry and
+                // remains usable even when an AX call fails mid-traversal.
+                let scoped = capturedAppWindows.map(\.bounds)
+                gaps.append(contentsOf: scoped); hasUnscopedGap = hasUnscopedGap || scoped.isEmpty
                 return .inconclusive(reason, detections: allDetections + output, gaps: gaps, requiresFullBlock: hasUnscopedGap, hasUnscopedGap: hasUnscopedGap)
             }
             allDetections.append(contentsOf: output)

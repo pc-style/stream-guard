@@ -186,11 +186,16 @@ final class DelayedCapture: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
         let geometry = frame.geometry ?? CaptureGeometry(globalBounds: globalBounds, pixelSize: extent.size)
         var rects = frame.decision.maskRects.compactMap { geometry.imageRect(for: $0) }
         let gaps = frame.decision.gapRects.compactMap { geometry.imageRect(for: $0) }
-        // Gap masks remain even when OCR succeeds: inaccessible AX content is
-        // never declared clean from an empty or partial recognition result.
-        rects.append(contentsOf: gaps)
         if frame.decision.usesOCR {
-            rects.append(contentsOf: ocrMasks(in: frame.image, crops: gaps, options: frame.decision.detectionOptions))
+            let ocr = ocrProtection(in: frame.image, crops: gaps, options: frame.decision.detectionOptions)
+            // A completed Vision request is the fallback coverage source for
+            // this exact buffered frame, so replace that crop's coarse mask
+            // with its sensitive substring masks. Failed crops remain fully
+            // masked rather than being treated as clean.
+            rects.append(contentsOf: ocr.masks)
+            rects.append(contentsOf: ocr.failedCrops)
+        } else {
+            rects.append(contentsOf: gaps)
         }
         if frame.decision.blocksFrame { rects = [extent] }
         for rect in rects {
@@ -205,16 +210,25 @@ final class DelayedCapture: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
         context.createCGImage(CIImage(color: .black).cropped(to: extent), from: extent)
     }
 
-    private func ocrMasks(in image: CGImage, crops: [CGRect], options: DetectionOptions) -> [CGRect] {
+    private func ocrProtection(in image: CGImage, crops: [CGRect], options: DetectionOptions) -> (masks: [CGRect], failedCrops: [CGRect]) {
         let engine = DetectionEngine()
         var masks: [CGRect] = []
+        var failedCrops: [CGRect] = []
         for crop in crops.prefix(8) {
             let cgCrop = cgImageCropRect(fromCIRect: crop.integral, imageHeight: CGFloat(image.height))
-            guard let cropped = image.cropping(to: cgCrop) else { continue }
+            guard let cropped = image.cropping(to: cgCrop) else {
+                failedCrops.append(crop)
+                continue
+            }
             let request = VNRecognizeTextRequest()
             request.recognitionLevel = .accurate
             request.usesLanguageCorrection = false
-            do { try VNImageRequestHandler(cgImage: cropped).perform([request]) } catch { continue }
+            do {
+                try VNImageRequestHandler(cgImage: cropped).perform([request])
+            } catch {
+                failedCrops.append(crop)
+                continue
+            }
             for observation in request.results ?? [] {
                 guard let candidate = observation.topCandidates(1).first else { continue }
                 for detection in engine.detect(in: candidate.string, options: options) {
@@ -228,7 +242,9 @@ final class DelayedCapture: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
                 }
             }
         }
-        return masks
+        // Crops beyond the bounded OCR budget must remain coarse-masked.
+        failedCrops.append(contentsOf: crops.dropFirst(8))
+        return (masks, failedCrops)
     }
 
     private func captureGeometry(from sampleBuffer: CMSampleBuffer, pixelSize: CGSize, fallbackBounds: CGRect?) -> CaptureGeometry? {
