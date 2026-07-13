@@ -24,7 +24,6 @@ final class ConfigurationWindowController: NSWindowController, NSWindowDelegate 
     private let advancedStack = NSStackView()
     private let delayPopup = NSPopUpButton()
     private let modePopup = NSPopUpButton()
-    private let presetPopup = NSPopUpButton()
     private let resolutionPopup = NSPopUpButton()
     private let fpsPopup = NSPopUpButton()
     private let cursorCheckbox = NSButton(checkboxWithTitle: "Include cursor", target: nil, action: nil)
@@ -97,10 +96,6 @@ final class ConfigurationWindowController: NSWindowController, NSWindowDelegate 
         modePopup.selectItem(at: ClearMode.allCases.firstIndex(of: settings.clearMode) ?? 1)
         modePopup.target = self; modePopup.action = #selector(modeChanged)
 
-        ProtectionPreset.allCases.forEach { presetPopup.addItem(withTitle: $0.title) }
-        presetPopup.selectItem(at: ProtectionPreset.allCases.firstIndex(of: settings.protectionPreset) ?? 1)
-        presetPopup.target = self; presetPopup.action = #selector(presetChanged)
-
         let detectionGrid = NSGridView(views: SensitiveKind.allCases.map { kind in
             let checkbox = NSButton(checkboxWithTitle: kind.rawValue, target: self, action: #selector(kindChanged(_:)))
             checkbox.identifier = NSUserInterfaceItemIdentifier(kind.rawValue)
@@ -133,7 +128,7 @@ final class ConfigurationWindowController: NSWindowController, NSWindowDelegate 
         advancedStack.spacing = 10
         [
             labeledRow("Delay", delayPopup), labeledRow("Resolution", resolutionPopup),
-            labeledRow("Frame rate", fpsPopup), cursorCheckbox, labeledRow("Protection", presetPopup), labeledRow("Clear policy", modePopup),
+            labeledRow("Frame rate", fpsPopup), cursorCheckbox, labeledRow("Clear policy", modePopup),
             sectionTitle("Detection"), detectionGrid, phrasePickerRow, phraseEditRow
         ].forEach(advancedStack.addArrangedSubview)
         advancedStack.isHidden = true
@@ -225,10 +220,6 @@ final class ConfigurationWindowController: NSWindowController, NSWindowDelegate 
     }
     @objc private func modeChanged() {
         settings.clearMode = ClearMode.allCases[modePopup.indexOfSelectedItem]
-        onSettingsChanged?()
-    }
-    @objc private func presetChanged() {
-        settings.protectionPreset = ProtectionPreset.allCases[presetPopup.indexOfSelectedItem]
         onSettingsChanged?()
     }
     @objc private func resolutionChanged() {
