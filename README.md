@@ -51,11 +51,6 @@ printf '%s' 'private text' | dist/pii-guard check --stdin
 
 PII Guard processes capture frames and Accessibility text on your Mac. It has no analytics, accounts, cloud processing, OCR, or remote API calls. Apps that don't expose readable Accessibility text are treated as unsupported, so check the status shown in the app before sharing.
 
-## Project lineage
-
-The reviewed disposition of archived predecessor experiments is recorded in
-[docs/ARCHIVED_PREDECESSORS.md](docs/ARCHIVED_PREDECESSORS.md).
-
 ## Website
 
 The launch site is plain HTML, CSS, and JavaScript at the repository root. Vercel can deploy it without a build command.
