@@ -4,17 +4,26 @@ PII Guard gives you a delayed, protected screen-sharing preview on macOS. Share 
 
 Everything runs locally. PII Guard uses ScreenCaptureKit for the delayed preview and Accessibility for text detection. It doesn't use OCR or send screen contents anywhere.
 
+> [!IMPORTANT]
+> **Status: beta.** Detection is limited to text that apps expose through macOS Accessibility. Treat the preview's safety status—not the presence of the app—as the condition for sharing. The current compatibility target is macOS 13 or newer with Swift 6.1 tooling.
+
 ## Install
 
-PII Guard isn't signed with a paid Apple Developer certificate yet, so it has to be built locally. You only need macOS 13 or newer and Xcode Command Line Tools, not full Xcode.
+PII Guard isn't Developer ID signed or notarized, so it has to be built and ad-hoc signed locally. You only need macOS 13 or newer and Xcode Command Line Tools, not full Xcode.
 
-Resolve the current main-branch commit once, build it locally, verify the staged app, replace the installed app with rollback protection, and launch PII Guard with one command:
+There is no tagged release yet. Download the installer from an immutable commit, verify its SHA-256 digest, and make it build that same commit:
 
 ```sh
-curl -fsSL https://install.pcstyle.dev/stream-guard.sh | bash
+REF=aae8d32bca238625ad05ee72e9251e0ff222ddc3
+EXPECTED=ace8212e4606fb922638362075cd526fb2b9c42dbe579a78c54072739c5e0088
+SCRIPT="$(mktemp -t pii-guard-install)"
+curl -fsSL "https://raw.githubusercontent.com/pc-style/stream-guard/$REF/install.sh" -o "$SCRIPT"
+printf '%s  %s\n' "$EXPECTED" "$SCRIPT" | shasum -a 256 -c -
+PII_GUARD_REF="$REF" bash "$SCRIPT"
+rm -f "$SCRIPT"
 ```
 
-The installer prints the exact commit it resolved before building. For a reproducible install, download the script and run it with `PII_GUARD_REF=<40-character-commit-sha>`.
+The installer verifies the requested 40-character source commit after fetching it, builds and checks the app bundle, and replaces an existing installation with rollback protection. The checksum covers the installer script; there are no signed release artifacts yet. Review and update both `REF` and `EXPECTED` deliberately when upgrading.
 
 The app is installed at `/Applications/PII Guard.app`. On first launch, use **Open Privacy Settings** until Accessibility and Screen Recording both show as allowed, then start the protected preview. If permission stays stuck after reinstalling, remove older PII Guard entries from both privacy lists and open the app again.
 
@@ -49,8 +58,14 @@ printf '%s' 'private text' | dist/pii-guard check --stdin
 
 ## Privacy
 
-PII Guard processes capture frames and Accessibility text on your Mac. It has no analytics, accounts, cloud processing, OCR, or remote API calls. Apps that don't expose readable Accessibility text are treated as unsupported, so check the status shown in the app before sharing.
+The app processes capture frames and Accessibility text on your Mac. It has no analytics, accounts, cloud processing, OCR, or remote API calls. Custom phrases stay in local macOS preferences. Optional MP4 recordings contain the protected delayed preview and are written only to the location you choose.
+
+PII Guard blacks out the entire preview when a match or inconclusive scan occurs; it does not redact individual regions. Apps that don't expose readable Accessibility text are treated as unsupported, so check the status shown in the app before sharing. The project does not guarantee that every sensitive value will match a detector.
+
+## Provenance and license
+
+The repository retains its original `stream-guard` name; the current app and command-line tool are named **PII Guard**. This is the canonical implementation and has no successor. The source is available under the [MIT license](LICENSE).
 
 ## Website
 
-The launch site is plain HTML, CSS, and JavaScript at the repository root. Vercel can deploy it without a build command.
+The launch site is plain HTML, CSS, and JavaScript at the repository root. Vercel can deploy it without a build command. Unlike the app, the website loads third-party font and animation assets in the browser.

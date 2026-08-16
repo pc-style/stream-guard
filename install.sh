@@ -2,7 +2,7 @@
 set -euo pipefail
 
 REPO_URL="https://github.com/pc-style/stream-guard.git"
-DEFAULT_REF="refs/heads/main"
+DEFAULT_REF="aae8d32bca238625ad05ee72e9251e0ff222ddc3"
 INSTALL_REF="${PII_GUARD_REF:-$DEFAULT_REF}"
 APP_NAME="PII Guard.app"
 INSTALL_DIR="/Applications"
